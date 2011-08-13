@@ -1,0 +1,7 @@
+Changes for 0.42:
+* General:
+- SEE is still wrong (does not generate all moves! Only the "best" per capture field, which is sometimes wrong)
+* Search:
+- Seach monad: the serach monat transformer has been flattened manually
+* Evaluation:
+- King and queen don't matter for mobility

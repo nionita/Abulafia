@@ -1,0 +1,7 @@
+Changes for 0.40:
+- Move is coded as a 32 bit word
+- move generation is pseudo legal
+- no pinned pieces management anymore
+- SEE changes: swap algorithm (but further used only for QS)
+- Search: the PV path is used as first move down in every PV node, as long available
+- Config: protected window on 30000 (don't know if it's better!)

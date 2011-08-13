@@ -1,0 +1,8 @@
+Changes for 0.56
+================
+Evaluation:
+- interior node recognition is implemented for some known finals (KmK, KNNK, KBNK, KBBK, KMxK) - not everything is tested
+- passed pawns are recognised and evaluated (no pawn hash yet)
+- king central position is evaluated (malus when there are major pieces more than a rook, bonus when less)
+Other:
+- the code was passed through hlint and most of errors/warnings were fixed

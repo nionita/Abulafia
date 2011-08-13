@@ -1,0 +1,15 @@
+* Move generation:
+- non capturing check giving moves are generated and used for quiescent search
+- use of routines for capture generations is parametrised for easier tests
+- SEE functions adjusted to seem to be more correct, but still not tested
+- SEE simplified for hanging pieces
+- SEE approximated for easy captures (always winning) and parametrised
+* Evaluation:
+- new eval items were added: for available castels, for figures on last line (except king and rooks) and for opponent king mobility when this is alone (so that simple mates should be more probable)
+- the parameter learning algorythm uses a variable adjustment step based on the angle of the last to deviations seen
+- when evaluating, the score is not scaled by material anymore (material is 1)
+- when learning, the material score will not be changed (limits = 1)
+* Search:
+- for root moves, the after depth 1 search the moves are sorted by score and not by nodes (which were always 1)
+* Other:
+- nodes storing in transposition table is parametrised (units can be a power of 2) and by reading approximated

@@ -1,0 +1,4 @@
+Just a few changes for:
+- eval parameter learning through tournaments
+- some estimation of moves to go depending on last score
+- some reorganizations in files / modules

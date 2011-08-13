@@ -1,0 +1,13 @@
+* Move generation:
+- many functions arguments are not marked as strict anymore (but it's not clear if this has some influence on performance)
+- non capturing direct checking moves are now generated in queen to knight order (not sure if this has some impact on speed or nodes)
+- history & sorting of non capturing moves take the distance to the root as a parameter (depth influence of a move is only local)
+* Search:
+- some search parameter adjusted (less extensions, less check evasions in quiescence search)
+- beeing forced in endless check is not evaluated to 0, but to a (small) negative value (parameter)
+- distance to the root is kept in search status (and used in some places, like move generation)
+- delta margin is now a parameter (not a method)
+* Other:
+- evaluation parameter configuration file has nicer syntax now (var = value, one per line)
+- bug corrected when best move was a promotion: now the promoted piece is added
+- log level defaults to 0 (no log)

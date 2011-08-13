@@ -1,0 +1,18 @@
+* Search:
+- improved beta margin for null move search implemented, but values seems not to be well choosen
+- provisions for expected node type - not finalized
+- some simplifications in the interface of the search module
+- re-search after fail of the null window search is now possible (parametrised)
+- when learnig eval parameters, the current node is qsearched
+* Other:
+- separation of the context and game impelemntation, so that now other (simpler) contexts as CtxIO is possible, for example for self play and other learning utilities
+- reorganization of the files and directories, some cleanup of old files
+- transposition table (hash) a bit simplified, nodes are now stored exactly
+- there is no priority and generation in the transposition table anymore (they were not used anyway)
+- eval learning has variable learning rate (it still does not brings much when leaning!)
+- limits for eval parameters are smaller now (only important when learning)
+- when learning, logging is forced
+- eval config file can be give as argument
+- for cuts also a history subtract can be made, when the move is expected to cut, it it doesn't (parameter)
+- history depth influence is parametrised
+- two programs to adjust the parameters offline according to some error minimum - e(d-1) - e(d)

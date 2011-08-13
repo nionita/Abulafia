@@ -1,0 +1,15 @@
+materialDiff = 1
+enPriseFrac = 0.1
+kingSafeOwn = 12
+kingSafeAdv = 12
+kingOpenOwn = -1
+kingOpenAdv = 1
+advKingAlone = 17
+castlePoints = 3
+mobilityKnight = 11
+mobilityBishop = 9
+mobilityRook = 6
+mobilityQueen = 0
+mobilityKing = 0
+centerAttacs = 15
+advancedPawn = 25

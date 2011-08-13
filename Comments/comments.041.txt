@@ -1,0 +1,11 @@
+Changes for 0.41:
+* Search:
+- Search extensions are limited by a maximum (per branch)
+- Reading from TT is restricted to higher depths
+- Some code rearangement when reading from TT + statistics for it
+- TT stores now also the number of nodes searched for the stored position
+- No depth granularity (i.e. no fractional extensions)
+* Move generation:
+- Moves history sort minimal depth different for Pv/non-Pv
+* Transposition Table:
+- Simple replacement schema (always replace, no window)

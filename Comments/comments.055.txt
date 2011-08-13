@@ -1,0 +1,17 @@
+Changes for 0.55:
+=================
+* Evaluation:
+- material values changed
+- king safety is now based only on attacs, not also on defences anymore (but it is still primitive)
+- king mobility is not calculated anymore
+- bishop pair and rook redundance are considered
+- rook pawn penalty considered
+- the score granulation is parametric (should be 0,2,4 or 8)
+- speed optimisations due to strictness (not yet definitive)
+* Move generation:
+- speed optimisations due to strictness (can be more done?)
+- preparations for smart SEE with attacks/attacked (POI) - not yet integrated
+* Search:
+- speed optimisations due to strictness - I even don't know if it's good enough
+* Other:
+- when give a parameter file, the engine displays the file name as part of the id

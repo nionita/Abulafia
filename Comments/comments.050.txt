@@ -1,0 +1,10 @@
+* Eval:
+- Evaluation function is parameterized (lists)
+- Can "learn" parameters (not really!)
+* Search:
+- Killer moves
+- Null move reduce is now 3, with 2 null moves in a row
+* Other:
+- Can search with given depth
+- Can search forever
+- Some improvements for the time

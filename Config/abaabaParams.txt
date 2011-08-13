@@ -1,0 +1,20 @@
+[1,12,9,6,0,0,16,10,10,30,-1,1,-30,-32,-50,-90,3,-7,17]
+
+[1,12,8,7,1,0,17,10,10,30,-1,1,-30,-32,-50,-90,3,-7,17]
+
+[2,5,6,4,2,2,12,9,9,46,-1,1,-60,-65,-100,-180] -- geht so...
+
+[3,5,6,6,2,3,13,9,10,23]	-- last (2.04.2011)
+
+[2,5,6,4,2,2,12,9,9,23]	-- very good
+
+Material: 1
+Mobility: 5 (knight, bishop, rook, queen, king)
+King Safe: 2 (defences - attacs own king, attacs - defences adv king)
+Center attacs: 1 (attacs in center own - adv)
+Advanced Pawn: 1 (6 or 7 rank)
+King Openness: 2 (own king openness, adv king openness)
+Penalty for attacked pieces: 4 (knights, bishops, rooks, queens)
+Bonus for castle rights: 1
+Penalty for last line figures: 1
+Bonus for restricted moves for opponent alone ging: 1
