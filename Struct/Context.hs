@@ -19,19 +19,17 @@ data InfoToGui = Info {
                     infoNodes :: Int,
                     infoPv :: [Move],
                     infoScore :: Int
-                    -- infoMate :: Int
                 }
                 | InfoB {
                     infoPv :: [Move],
                     infoScore :: Int
                 }
-                | InfoD {
-                    infoDepth :: Int
-                }
+                | InfoD { infoDepth :: Int }
                 | InfoCM {
                     infoMove :: Move,
                     infoCurMove :: Int
                 }
+                | InfoS { infoString :: String }
 
 -- This is the context in which the other components run
 -- it has a fix part, established at the start of the programm,
@@ -134,4 +132,10 @@ informGuiDepth :: Int -> CtxIO ()
 informGuiDepth tief = do
     ctx <- ask
     let gi = InfoD { infoDepth = tief }
+    liftIO $ writeChan (inform ctx) gi
+
+informGuiString :: String -> CtxIO ()
+informGuiString s = do
+    ctx <- ask
+    let gi = InfoS { infoString = s }
     liftIO $ writeChan (inform ctx) gi

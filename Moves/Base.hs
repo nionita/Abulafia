@@ -43,9 +43,9 @@ import Moves.History
 instance Score Int where
     {-# INLINE nextlev #-}
     nextlev !i
-        | i >= mateScore - 255    = im
-        | i <= (-mateScore) + 255 = ip
-        | otherwise               = i
+        | i >= mateScore - 255    = -im
+        | i <= (-mateScore) + 255 = -ip
+        | otherwise               = -i
         where !ip = i + 1
               !im = i - 1
     nearmate i = i >= 1200 || i <= -1200

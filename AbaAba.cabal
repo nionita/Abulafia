@@ -54,6 +54,10 @@ Executable PlotEvolve
   Main-is:	Main\EvolveToPlot.hs
   Build-depends:	base >= 4, filepath, regex-compat
 
+Executable FixPlayFen
+  Main-is:	Main\MainFixPlayFen.hs
+  Build-depends:	base >= 4, array, mtl, parsec
+
 -- Executable Evolve
 --   Main-is:	Main\MainEvolve.hs
 --   Build-depends:	base >= 4, process, filepath, bytestring, old-locale

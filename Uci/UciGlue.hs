@@ -4,19 +4,7 @@ module Uci.UciGlue (
 ) where
 
 import Data.Array.IArray
--- import Data.Array.Unboxed
--- import Debug.Trace
--- import Control.Exception (assert)
--- import Data.Word
--- import Data.Bits
--- import Data.List
--- import Data.Char
--- import Data.Maybe
 import Control.Monad.State.Lazy
--- import Control.Monad.Reader
--- import Data.Ord (comparing)
--- import Data.Array.IO
--- import System.Random
 
 import qualified Search.SearchMonad as SM
 import Search.Albeta
@@ -103,3 +91,4 @@ bestMoveCont tiefe stati lastsc lpv rmvs = do
 talkToContext (LogMes s)       = ctxLog "Info" s
 talkToContext (BestMv a b c d) = informGui a b c d
 talkToContext (CurrMv a b)     = informGuiCM a b
+talkToContext (InfoStr s)      = informGuiString s

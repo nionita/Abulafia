@@ -34,7 +34,7 @@ import Eval.FileParams (makeEvalState, learnConfigFilePrefix)
 
 killingThread = False
 -- killingStop = 5
-forceLogging = False || learnEval
+forceLogging = True || learnEval
 
 initContext :: GConfig -> IO Context
 initContext cf@(GConfig cfg) = do
@@ -139,6 +139,7 @@ theInformer ichan = do
     theInformer ichan
 
 toGui s = case s of
+            InfoS s    -> answer $ infos s
             InfoD _    -> answer $ formInfoDepth s
             InfoCM _ _ -> answer $ formInfoCM s
             _          -> answer $ formInfo s
@@ -317,16 +318,20 @@ searchTheTree tief mtief ms lsc lpv rmvs = do
     let strtms = srchStrtMs chg
         delta = strtms + ms - currms
         ms2 = ms `div` 2
-        onlyone = length rmvsf == 1 && tief >= 4
-        timeover = delta <= ms2
-        depthmax = tief >= mtief
+        onlyone = ms > 0 && length rmvsf == 1 && tief >= 4	-- only in normal play
+        timeover = ms > 0 && delta <= ms2  -- time is half over
+        depthmax = tief >= mtief	--  or maximal depth
         mes = "Depth " ++ show tief ++ " Score " ++ show sc ++ " in ms "
                 ++ show currms ++ " remaining " ++ show delta
                 ++ " path " ++ show path
     ctxLog "Info" mes
     -- if ms > 0 && (delta <= 0 || tief >= mtief)  -- time is over or maximal depth
-    if ms > 0 && (timeover || depthmax || onlyone)  -- time is half over or maximal depth or one move
+    if depthmax || timeover || onlyone
         then do
+            answer $ infos $ "End of search"
+            answer $ infos $ "depthmax = " ++ show depthmax
+            answer $ infos $ "timeover = " ++ show timeover
+            answer $ infos $ "onlyone = " ++ show onlyone
             when depthmax $ ctxLog "Info" "in searchTheTree: max depth reached"
             giveBestMove path
         else do
@@ -391,7 +396,7 @@ answer s = do
 
 -- Version and suffix:
 progVersion = "0.58"
-progVerSuff = ""
+progVerSuff = " ntt"
 
 -- These are the possible answers from engine to GUI:
 idName = "id name AbaAba " ++ progVersion ++ progVerSuff
@@ -429,8 +434,8 @@ formInfoB itg = "info"
     where isc = infoScore itg
 
 formScore i
-    | i >= mateScore - 255    = " score mate " ++ show ((mateScore - i + 2) `div` 2)
-    | i <= (-mateScore) + 255 = " score mate " ++ show ((-mateScore - i - 1) `div` 2)
+    | i >= mateScore - 255    = " score mate " ++ show ((mateScore - i + 1) `div` 2)
+    | i <= (-mateScore) + 255 = " score mate " ++ show ((-mateScore - i) `div` 2)
     | otherwise               = " score cp " ++ show i
 
 -- sel.depth nicht implementiert
