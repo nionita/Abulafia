@@ -7,7 +7,7 @@ module Moves.Board (
     genMoveCapt, genMoveCast, genMoveNCapt, genMoveTransf, genMovePCapt, genMovePNCapt, genMoveFCheck,
     genMoveNCaptToCheck,
     updatePos, illegalPos,
-    legalMove,
+    legalMove, alternateMoves,
     doFromToMove, reverseMoving
     ) where
 
@@ -622,6 +622,16 @@ changePining p src dst = kings p `testBit` src	-- king is moving
 
 clearCast :: Square -> BBoard -> BBoard
 clearCast sq bb = if caRiMa `testBit` sq then bb `clearBit` sq else bb
+
+-- Just for a dumb debug: a quick check if two consecutive moves
+-- can be part of a move sequence
+alternateMoves :: MyPos -> Move -> Move -> Bool
+alternateMoves p m1 m2
+    | Busy c1 _ <- tabla p src1,
+      Busy c2 _ <- tabla p src2 = c1 /= c2
+    | otherwise = True	-- means: we cannot say...
+    where src1 = fromSquare m1
+          src2 = fromSquare m2
 
 legalMove :: MyPos -> Move -> Bool
 legalMove p m

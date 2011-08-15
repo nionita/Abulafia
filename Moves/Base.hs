@@ -68,6 +68,7 @@ instance CtxMon m => Node (Game m) Move Int where
     {-# INLINE tactical #-}
     tactical = tacticalPos
     legalEdge = isMoveLegal
+    inSeq  = okInSequence
     doEdge = doMove False
     undoEdge = undoMove
     betaMove = betaMove0
@@ -278,6 +279,11 @@ isMoveLegal :: CtxMon m => Move -> Game m Bool
 isMoveLegal m = do
     t <- getPos
     return $! legalMove t m
+
+okInSequence :: CtxMon m => Move -> Move -> Game m Bool
+okInSequence m1 m2 = do
+    t <- getPos
+    return $! alternateMoves t m1 m2
 
 -- Static evaluation function
 {-# INLINE staticVal0 #-}
