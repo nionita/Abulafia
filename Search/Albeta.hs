@@ -34,7 +34,7 @@ useNegHist  = False	-- when not cutting - negative history
 negHistMNo  = 1		-- how many moves get negative history
 
 -- Parameters for late move reduction:
-lmrActive   = True
+lmrActive   = False
 lmrMinDFRes = 8		-- minimum depth for full research when failed high in null window
 lmrMinDRed  = 2		-- minimum reduced depth
 lmrMaxDepth = 15
@@ -53,7 +53,7 @@ logrd :: Int -> Int -> Double -> Double
 logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
 
 -- Parameters for futility pruning:
-futilActive = True
+futilActive = False
 maxFutilDepth = 3
 futilMargins :: Score s => Array Int s
 -- futilMargins = array (1, 3) [ (1, 400), (2, 650), (3, 1200) ]
@@ -375,7 +375,7 @@ pvInnerRoot b d nst e = do
     lift $ undoEdge e
     modify $ \s -> s { absdp = absdp old, usedext = usedext old }
     let s' = nextlev (addToPath e s)
-    checkMe s' "pvInnerRoot 3"
+    -- -- checkMe s' "pvInnerRoot 3"
     pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
     checkFailOrPVRoot (stats old) b d e s' nst
 
@@ -403,7 +403,7 @@ pvInnerRootExten b d spec exd nst = do
            -- lift $ informStr $ "Search with closed window a = " ++ show (-a-1)
            --            ++ " b = " ++ show (-a) ++ " depth " ++ show d'
            s1 <- pvSearch nst (-a-1) (-a) d' pvpath nulMoves
-           checkMe s1 "pvInnerRootExten 3"
+           -- -- checkMe s1 "pvInnerRootExten 3"
            if -s1 > a -- we didn't fail low, so we need re-search
               then do
                  reSearch
@@ -520,7 +520,7 @@ pvSearch nst !a !b d lastpath lastnull = do
     nmfail <- nullEdgeFailsHigh nst b d lastnull
     if nmfail
        then pindent ("<= " ++ show b) >> return (onlyScore b)
-       -- then return b
+       -- then return $ onlyScore b
        else do
           ---- Here: we dont know where to put the killer
           ---- so we deactivate them for now
@@ -605,7 +605,7 @@ pvInnerLoop b d nst e = do
     lift $ undoEdge e	-- undo the move
     modify $ \s -> s { absdp = absdp old, usedext = usedext old }
     let s' = nextlev (addToPath e s)
-    checkMe s' "pvInnerLoop 3"
+    -- -- checkMe s' "pvInnerLoop 3"
     pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
     checkFailOrPVLoop (stats old) b d e s' nst
 
@@ -642,11 +642,11 @@ pvInnerLoopExten b d spec exd nst = do
           -- let pvpath = if null lastpath
           --           then if hdeep > 0 && tp > 0 then [e'] else []
           --           else lastpath
-          --1-- let !pvpath = if hdeep > 0 && tp > 0 then Seq [e'] else (pvcont nst)
-          let !pvpath = if hdeep > 0 && tp > 0 then Seq [] else (pvcont nst)
+          let !pvpath = if hdeep > 0 && tp > 0 then Seq [e'] else (pvcont nst)
+          --1-- let !pvpath = if hdeep > 0 && tp > 0 then Seq [] else (pvcont nst)
               -- !hs = nextlev hscore
-              --2-- ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'] }
-              ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [] }
+              ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'] }
+              --2-- ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [] }
               hs = - ttpath
           if hdeep >= d && (tp == 2 || tp == 1 && hs > a || tp == 0 && hs <= a)
              then reSucc nodes >> return ttpath
@@ -657,13 +657,13 @@ pvInnerLoopExten b d spec exd nst = do
                                   -- don't prune when tactical or in learning
                                   then return (False, 0)
                                   else isPruneFutil d (-b) (-a)
-                 checkMe v "pvInnerLoopExten 3"
+                 -- -- checkMe v "pvInnerLoopExten 3"
                  if prune
                     then return v	-- we will fail low or high
                     else do
                        nulWind
                        s1 <- pvSearch nst (-a-1) (-a) d' pvpath nulMoves
-                       checkMe s1 "pvInnerLoopExten 4"
+                       -- -- checkMe s1 "pvInnerLoopExten 4"
                        if -s1 > a -- we need re-search
                           then do
                             reSearch
@@ -842,8 +842,8 @@ bestMoveFromHash = do
     (hdeep, tp, _, e, _) <- lift retrieve
     when (hdeep > 0) $ reSucc 1		-- here we save just move generation
     -- return $! if hdeep > 0 && tp > 0 then [e] else []
-    --3-- return $! Seq [ e | hdeep > 0 && tp > 0 ]
-    return $! Seq []
+    return $! Seq [ e | hdeep > 0 && tp > 0 ]
+    --3-- return $! Seq []
 
 {-# INLINE reportStats #-}
 reportStats :: Node m e s => Search m e s ()
@@ -914,7 +914,7 @@ indentPassive :: Node m e s => String -> Search m e s ()
 indentPassive _ = return ()
 
 pindent, qindent :: Node m e s => String -> Search m e s ()
-pindent = indentPassive
+pindent = indentActive
 qindent = indentPassive
 
 bestFirst :: Eq e => Seq e -> Alt e -> Alt e -> Alt e

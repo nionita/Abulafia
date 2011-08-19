@@ -58,6 +58,11 @@ Executable FixPlayFen
   Main-is:	Main\MainFixPlayFen.hs
   Build-depends:	base >= 4, array, mtl, parsec
 
+Executable BenchFixPlayFen
+  Main-is:	Tests\TestFixPlayFen.hs
+  Build-depends:	base >= 4, array, mtl, parsec, criterion
+  GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4 -funfolding-use-threshold=32
+
 -- Executable Evolve
 --   Main-is:	Main\MainEvolve.hs
 --   Build-depends:	base >= 4, process, filepath, bytestring, old-locale
