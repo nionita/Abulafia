@@ -25,8 +25,7 @@ debug = False
 
 -- Some fix search parameter
 useAspirWin = True
--- depthForCM  = 8 -- from this depth inform current move
-depthForCM  = 6 -- from this depth inform current move
+depthForCM  = 7 -- from this depth inform current move
 minToStore  = 1 -- minimum remaining depth to store the position in hash
 minToRetr   = 1 -- minimum remaining depth to retrieve
 maxDepthExt = 3 -- maximum depth extension
@@ -240,6 +239,7 @@ noMove (Alt es) = null es
 nullSeq :: Seq e -> Bool
 nullSeq (Seq es) = null es
 
+{--
 {-# INLINE checkMe #-}
 checkMe :: Node m e s => Path e s -> String -> Search m e s ()
 checkMe p pula
@@ -251,6 +251,7 @@ checkMe p pula
                            >> informStr undefined
           first2Edges (Path { pathMoves = Seq (e1:e2:_) }) = Just (e1, e2)
           first2Edges _ = Nothing
+--}
 
 pvsInit :: Node m e s => PVState e s
 pvsInit = PVState { ronly = pvro0, draft = 0, absdp = 0,
@@ -408,7 +409,8 @@ pvInnerRootExten b d spec exd nst = do
                  -- pindent $ "Research! (" ++ show s1 ++ ")"
                  if reduced
                     then do	-- re-search with no reduce for root moves
-                      let d''= fst $! nextDepth (d+exd') (draft old) (movno nst) False (forpv nst)
+                      -- let d''= fst $! nextDepth (d+exd') (draft old) (movno nst) False (forpv nst)
+                      let d''= fst $! nextDepth (d+exd') (draft old) (movno nst) False True
                       pvSearch nst (-b) (-a) d'' pvpath nulMoves
                     else pvSearch nst (-b) (-a) d' pvpath nulMoves
               else return s1
@@ -626,9 +628,9 @@ pvInnerLoopExten b d spec exd nst = do
         !a = cursc nst
         -- late move reduction
         !reduce = lmrActive && not (nearmate a || tact || spec || exd > 0 || d < lmrMinDRed)
-        !(d', reduced) = nextDepth (d+exd') (draft old) mn reduce (forpv nst)
+        !(d', reduced) = nextDepth (d+exd') (draft old) mn reduce (forpv nst && a < b - 1)
     -- checkMe a "pvInnerLoopExten 2"
-    if forpv nst 	-- && a < b - 1	-- to get really PV (otherwise cut/all)
+    if forpv nst
        then do
           pvpath <- if nullSeq (pvcont nst) then bestMoveFromHash else return (pvcont nst)
           pvSearch nst (-b) (-a) d' pvpath nulMoves

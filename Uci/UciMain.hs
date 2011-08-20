@@ -34,7 +34,7 @@ import Eval.FileParams (makeEvalState, learnConfigFilePrefix)
 
 killingThread = False
 -- killingStop = 5
-forceLogging = True || learnEval
+forceLogging = False || learnEval
 
 initContext :: GConfig -> IO Context
 initContext cf@(GConfig cfg) = do
@@ -396,7 +396,7 @@ answer s = do
 
 -- Version and suffix:
 progVersion = "0.58"
-progVerSuff = " omg"
+progVerSuff = " pal"
 
 -- These are the possible answers from engine to GUI:
 idName = "id name AbaAba " ++ progVersion ++ progVerSuff
