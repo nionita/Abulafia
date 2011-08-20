@@ -26,7 +26,7 @@ debug = False
 -- Some fix search parameter
 useAspirWin = True
 -- depthForCM  = 8 -- from this depth inform current move
-depthForCM  = 1 -- from this depth inform current move
+depthForCM  = 6 -- from this depth inform current move
 minToStore  = 1 -- minimum remaining depth to store the position in hash
 minToRetr   = 1 -- minimum remaining depth to retrieve
 maxDepthExt = 3 -- maximum depth extension
@@ -34,13 +34,15 @@ useNegHist  = False	-- when not cutting - negative history
 negHistMNo  = 1		-- how many moves get negative history
 
 -- Parameters for late move reduction:
-lmrActive   = False
+lmrActive   = True
 lmrMinDFRes = 8		-- minimum depth for full research when failed high in null window
 lmrMinDRed  = 2		-- minimum reduced depth
 lmrMaxDepth = 15
 lmrMaxWidth = 63
-lmrPv     = 3.8
-lmrRest   = 2.2
+lmrPv     = 7
+lmrRest   = 5
+-- lmrPv     = 3.8
+-- lmrRest   = 2.2
 -- lmrPv     = 3.5
 -- lmrRest   = 2.5
 lmrReducePv, lmrReduceArr :: UArray (Int, Int) Int
@@ -53,7 +55,7 @@ logrd :: Int -> Int -> Double -> Double
 logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
 
 -- Parameters for futility pruning:
-futilActive = False
+futilActive = True
 maxFutilDepth = 3
 futilMargins :: Score s => Array Int s
 -- futilMargins = array (1, 3) [ (1, 400), (2, 650), (3, 1200) ]
@@ -183,11 +185,7 @@ instance Ord s => Ord (Path e s) where
                        then LT
                        else if pathScore p1 > pathScore p2
                             then GT
-                            else if pathDepth p1 < pathDepth p2
-                                 then LT
-                                 else if pathDepth p1 > pathDepth p2
-                                      then GT
-                                      else EQ
+                            else EQ
 
 instance (Show e, Num s) => Num (Path e s) where
     p1 + p2 = Path { pathScore = pathScore p1 + pathScore p2, pathDepth = d, pathMoves = l }
@@ -361,7 +359,7 @@ pvInnerRoot b d nst e = do
     old <- get
     let !mn = movno nst
     when (draft old >= depthForCM) $ lift $ informCM e mn
-    pindent $ "-> " ++ show e
+    -- pindent $ "-> " ++ show e
     -- lift $ logmes $ "Search root move " ++ show e ++ " a = " ++ show a ++ " b = " ++ show b
     -- do the move
     exd <- lift $ doEdge e False
@@ -376,7 +374,7 @@ pvInnerRoot b d nst e = do
     modify $ \s -> s { absdp = absdp old, usedext = usedext old }
     let s' = nextlev (addToPath e s)
     -- -- checkMe s' "pvInnerRoot 3"
-    pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+    -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
     checkFailOrPVRoot (stats old) b d e s' nst
 
 -- {-# SPECIALIZE pvInnerRootExten :: Node m e Int => Int -> Int -> Bool -> Int -> [e] -> Search m e Int (Int, [e]) #-}
@@ -511,16 +509,16 @@ pvSearch _ a b d _ _ | d <= 0 = do
     v <- pvQSearch (pathScore a) (pathScore b) 0
     when debug $ lift $ logmes $ "<-- pvSearch: reach depth 0, return " ++ show v
     -- let !v' = if v <= a then a else if v > b then b else v
-    pindent $ "<> " ++ show v
+    -- pindent $ "<> " ++ show v
     return $ pathFromScore v
 pvSearch nst !a !b d lastpath lastnull = do
-    pindent $ "=> " ++ show a ++ ", " ++ show b
+    -- pindent $ "=> " ++ show a ++ ", " ++ show b
     -- checkMe a "pvSearch 3"
     -- checkMe b "pvSearch 4"
     nmfail <- nullEdgeFailsHigh nst b d lastnull
     if nmfail
-       then pindent ("<= " ++ show b) >> return (onlyScore b)
-       -- then return $ onlyScore b
+       -- then pindent ("<= " ++ show b) >> return (onlyScore b)
+       then return $ onlyScore b
        else do
           ---- Here: we dont know where to put the killer
           ---- so we deactivate them for now
@@ -529,7 +527,7 @@ pvSearch nst !a !b d lastpath lastnull = do
           if noMove edges
              then do
                   v <- lift staticVal
-                  pindent ("<= " ++ show v)
+                  -- pindent ("<= " ++ show v)
                   return $ pathFromScore v
              else do
                   -- Loop thru the moves
@@ -558,7 +556,7 @@ pvSearch nst !a !b d lastpath lastnull = do
                           -- else modify $ \st -> st { killer = pushKiller (head p) s kill }
                           else return (cursc nstf)	-- modify $ \st -> st { killer = kill1 }
                   -- checkMe s "pvSearch 5"
-                  pindent $ "<= " ++ show s
+                  -- pindent $ "<= " ++ show s
                   return s
 
 -- {-# SPECIALIZE nullEdgeFailsHigh :: Node m e Int => Int -> Int -> Int -> Int -> Search m e Int Bool #-}
@@ -594,7 +592,7 @@ pvInnerLoop :: Node m e s
 pvInnerLoop b d nst e = do
     -- checkMe b "pvInnerLoop 1"
     old <- get
-    pindent $ "-> " ++ show e
+    -- pindent $ "-> " ++ show e
     exd <- lift $ doEdge e False	-- do the move
     newNode
     modify $ \s -> s { absdp = absdp s + 1 }
@@ -606,7 +604,7 @@ pvInnerLoop b d nst e = do
     modify $ \s -> s { absdp = absdp old, usedext = usedext old }
     let s' = nextlev (addToPath e s)
     -- -- checkMe s' "pvInnerLoop 3"
-    pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+    -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
     checkFailOrPVLoop (stats old) b d e s' nst
 
 reserveExtension uex exd = do
@@ -914,7 +912,7 @@ indentPassive :: Node m e s => String -> Search m e s ()
 indentPassive _ = return ()
 
 pindent, qindent :: Node m e s => String -> Search m e s ()
-pindent = indentActive
+pindent = indentPassive
 qindent = indentPassive
 
 bestFirst :: Eq e => Seq e -> Alt e -> Alt e -> Alt e
