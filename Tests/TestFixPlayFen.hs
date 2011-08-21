@@ -29,8 +29,8 @@ instance CtxMon IO where
 main = defaultMain [
            bench "depth 2" $ progMain 2,
            bench "depth 3" $ progMain 3,
-           bench "depth 4" $ progMain 4,
-           bench "depth 5" $ progMain 5
+           bench "depth 4" $ progMain 4
+           -- bench "depth 5" $ progMain 5
        ]
 
 progMain depth = do

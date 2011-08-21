@@ -81,8 +81,9 @@ inEndlessCheck = -1	-- there is a risk to be left in check
 qsDelta     = 1100
 
 class (Ord s, Num s, Bounded s) => Score s where
-    nextlev :: s -> s
+    nextlev  :: s -> s
     nearmate :: s -> Bool
+    corrmate :: Int -> s -> s
 
 class Edge e where
     special :: e -> Bool
@@ -163,12 +164,13 @@ data Path e s
     = Path {
          pathScore :: !s,
          pathDepth :: !Int,
-         pathMoves :: Seq e
+         pathMoves :: Seq e,
+         pathOrig  :: String
       } deriving Show
 
 -- Making a path from a plain score:
-pathFromScore :: s -> Path e s
-pathFromScore s = Path { pathScore = s, pathDepth = 0, pathMoves = Seq [] }
+pathFromScore :: String -> s -> Path e s
+pathFromScore ori s = Path { pathScore = s, pathDepth = 0, pathMoves = Seq [], pathOrig = ori }
 
 -- Add a move to a path:
 addToPath :: e -> Path e s -> Path e s
@@ -176,11 +178,13 @@ addToPath e p = p { pathDepth = pathDepth p + 1, pathMoves = Seq $ e : unseq (pa
 
 -- Take only the score from a path (to another), rest empty
 onlyScore :: Path e s -> Path e s
-onlyScore (Path { pathScore = s }) = Path { pathScore = s, pathDepth = 0, pathMoves = Seq [] }
+onlyScore p = Path { pathScore = pathScore p, pathDepth = 0, pathMoves = Seq [],
+                  pathOrig = "onlyScore from " ++ pathOrig p }
 
 -- Take all from the first path, except the score, which comes from the second (for fail hard)
 combinePath :: Path e s -> Path e s -> Path e s
-combinePath p1 p2 = p1 { pathScore = pathScore p2 }
+combinePath p1 p2 = p1 { pathScore = pathScore p2,
+                         pathOrig = "(" ++ pathOrig p1 ++ ") <+> (" ++ pathOrig p2 ++ ")" }
 
 instance Eq s => Eq (Path e s) where
     p1 == p2 = pathScore p1 == pathScore p2 && pathDepth p1 == pathDepth p2
@@ -194,23 +198,25 @@ instance Ord s => Ord (Path e s) where
                             else EQ
 
 instance (Show e, Num s) => Num (Path e s) where
-    p1 + p2 = Path { pathScore = pathScore p1 + pathScore p2, pathDepth = d, pathMoves = l }
+    p1 + p2 = Path { pathScore = pathScore p1 + pathScore p2, pathDepth = d, pathMoves = l, pathOrig = po }
         where (d, l) = if pathDepth p2 > pathDepth p1
                           then (pathDepth p2, pathMoves p2)
                           else (pathDepth p1, pathMoves p1)
+              po = pathOrig p1 ++ " + " ++ pathOrig p2
     p1 * p2 = error "Path multiplication!"
     negate p = p { pathScore = negate (pathScore p) }
     abs p = p { pathScore = abs (pathScore p) }
     signum p = p { pathScore = signum (pathScore p) }
-    fromInteger i = pathFromScore (fromInteger i)
+    fromInteger i = pathFromScore "fromInteger" (fromInteger i)
 
 instance Bounded s => Bounded (Path e s) where
-    minBound = Path { pathScore = minBound, pathDepth = 0, pathMoves = Seq [] }
-    maxBound = Path { pathScore = maxBound, pathDepth = 0, pathMoves = Seq [] }
+    minBound = Path { pathScore = minBound, pathDepth = 0, pathMoves = Seq [], pathOrig = "" }
+    maxBound = Path { pathScore = maxBound, pathDepth = 0, pathMoves = Seq [], pathOrig = "" }
 
 instance (Show e, Edge e, Score s) => Score (Path e s) where
     nextlev p = p { pathScore = nextlev (pathScore p) }
     nearmate  = nearmate . pathScore
+    corrmate _ p = p { pathScore = corrmate (pathDepth p) (pathScore p) }
 
 -- Read only parameters of the search, so that we can change them programatically
 data PVReadOnly
@@ -330,8 +336,8 @@ pvRootSearch a b d lastpath rmvs aspir = do
     -- lift $ informStr $ "Root moves: " ++ show edges
     -- pvcont is the pv continuation from the last iteration
     let !pvc  = if nullSeq lastpath then lastpath else Seq $ tail $ unseq lastpath
-        !nsti = nst0 { cursc = pathFromScore a, pvcont = pvc }
-    nstf <- pvLoop (pvInnerRoot (pathFromScore b) d) nsti edges
+        !nsti = nst0 { cursc = pathFromScore "Alpha" a, pvcont = pvc }
+    nstf <- pvLoop (pvInnerRoot (pathFromScore "Beta" b) d) nsti edges
     rsr <- if weak nstf		-- failed low
               then do
                  when (not aspir) $ do
@@ -340,7 +346,7 @@ pvRootSearch a b d lastpath rmvs aspir = do
                  return (a, Seq [], edges)	-- just to permit aspiration to retry
               else do
                  (s, p) <- lift $ choose $ sortBy (comparing fstdesc)
-                                         $ map (\(Pvsl p _ _) -> (pathScore p, unseq $ pathMoves p))
+                                         $ map (\(Pvsl p _ _) -> (pamaScore p, unseq $ pathMoves p))
                                          $ filter pvGood $ pvsl nstf
                  when (d < depthForCM) $ informBest s d p
                  let !best = head p
@@ -349,6 +355,7 @@ pvRootSearch a b d lastpath rmvs aspir = do
     reportStats
     return rsr
     where fstdesc (a, _) = -a
+          pamaScore = pathScore . corrmate 0
 
 -- This is the inner loop of the PV search of the root, executed at root once per possible move
 -- See the parameter
@@ -374,7 +381,7 @@ pvInnerRoot b d nst e = do
     modify $ \s -> s { absdp = absdp s + 1 }
     s <- case exd of
              Exten exd' -> pvInnerRootExten b d (special e) exd' nst
-             Final sco  -> return $ pathFromScore sco
+             Final sco  -> return $ pathFromScore "Final" sco
     -- checkMe s "pvInnerRoot 2"
     -- undo the move
     lift $ undoEdge e
@@ -382,6 +389,8 @@ pvInnerRoot b d nst e = do
     let s' = nextlev (addToPath e s)
     -- -- checkMe s' "pvInnerRoot 3"
     -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+    -- lift $ informStr $ "<- " ++ show e ++ " (" ++ show (pathScore s)
+    --                                 ++ " /// " ++ show (pathScore s') ++ ")"
     checkFailOrPVRoot (stats old) b d e s' nst
 
 -- {-# SPECIALIZE pvInnerRootExten :: Node m e Int => Int -> Int -> Bool -> Int -> [e] -> Search m e Int (Int, [e]) #-}
@@ -395,7 +404,7 @@ pvInnerRootExten b d spec exd nst = do
     pvpath <- if not . nullSeq $ pvcont nst then return (pvcont nst) else bestMoveFromHash
     tact <- lift tactical
     let reduce = okToReduce tact
-        (!d', reduced) = nextDepth (d+exd') (draft old) (movno nst) reduce (forpv nst && a < b - 1)
+        (!d', reduced) = nextDepth (d+exd') (movno nst) reduce (forpv nst && a < b - 1)
     -- when (d' < d-1) $ pindent $ "d' = " ++ show d'
     -- checkMe a $ "pvInnerRootExten 2:" ++ show a
     if forpv nst
@@ -414,7 +423,7 @@ pvInnerRootExten b d spec exd nst = do
                  if reduced && d > 1
                     then do	-- re-search with no reduce for root moves
                       -- let d''= fst $! nextDepth (d+exd') (draft old) (movno nst) False (forpv nst)
-                      let d''= fst $! nextDepth (d+exd') (draft old) (movno nst) False True
+                      let d''= fst $! nextDepth (d+exd') (movno nst) False True
                       pvSearch nst (-b) (-a) d'' pvpath nulMoves
                     else pvSearch nst (-b) (-a) d' pvpath nulMoves
               else return s1
@@ -463,13 +472,15 @@ checkFailOrPVRoot xstats b d e s nst = do
                     --     lift $ learn d typ b s0
                     lift $ betaMove True d (absdp sst) e
                     put sst { stats = statCut (stats sst) mn }
-                    let nst1 = nst { cursc = combinePath s b, weak = False,
-                                     pvsl = xpvslg, pvcont = Seq [] }
+                    -- let nst1 = nst { cursc = combinePath s b, weak = False,
+                    let nst1 = nst { cursc = csc, weak = False, pvsl = xpvslg, pvcont = Seq [] }
+                        !csc = if s > b then combinePath s b else s
                     -- lift $ logmes $ "Root move " ++ show e ++ " failed high: " ++ show s
                     -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
                     return (True, nst1)
                else if s > a
                     then do
+                         -- lift $ informStr $ "Next info: " ++ pathOrig s
                          informBest (pathScore s) (draft sst) (unseq $ pathMoves s)
                          let typ = 2	-- best move so far (score is exact)
                          when (d >= minToStore) $ lift $ store d typ (pathScore s) e nodes
@@ -521,7 +532,7 @@ pvSearch _ a b !d _ _ | d <= 0 = do
     when debug $ lift $ logmes $ "<-- pvSearch: reach depth 0, return " ++ show v
     -- let !v' = if v <= a then a else if v > b then b else v
     -- pindent $ "<> " ++ show v
-    return $ pathFromScore v
+    return $! pathFromScore ("pvQSearch 1:" ++ show v) v
 pvSearch nst !a !b d lastpath lastnull = do
     -- pindent $ "=> " ++ show a ++ ", " ++ show b
     -- checkMe a "pvSearch 3"
@@ -539,7 +550,7 @@ pvSearch nst !a !b d lastpath lastnull = do
              then do
                   v <- lift staticVal
                   -- pindent ("<= " ++ show v)
-                  return $ pathFromScore v
+                  return $ pathFromScore ("static: " ++ show v) v
              else do
                   -- Loop thru the moves
                   -- modify $ \s -> s { forpv = True, cursc = a, movno = 1,
@@ -609,7 +620,7 @@ pvInnerLoop b d nst e = do
     modify $ \s -> s { absdp = absdp s + 1 }
     s <- case exd of
              Exten exd' -> pvInnerLoopExten b d (special e) exd' nst
-             Final sco  -> return $ pathFromScore sco
+             Final sco  -> return $ pathFromScore "Final" sco
     -- checkMe s "pvInnerLoop 2"
     lift $ undoEdge e	-- undo the move
     modify $ \s -> s { absdp = absdp old, usedext = usedext old }
@@ -635,8 +646,8 @@ pvInnerLoopExten b d spec exd nst = do
     exd' <- reserveExtension (usedext old) exd
     let mn = movno nst
         -- late move reduction
-        !reduce = okToReduce tact
-        (!d', reduced) = nextDepth (d+exd') (draft old) mn reduce (forpv nst && a < b - 1)
+        reduce = okToReduce tact
+        (!d', reduced) = nextDepth (d+exd') mn reduce (forpv nst && a < b - 1)
     -- checkMe a "pvInnerLoopExten 2"
     if forpv nst
        then do
@@ -653,7 +664,8 @@ pvInnerLoopExten b d spec exd nst = do
           let !pvpath = if hdeep > 0 && tp > 0 then Seq [e'] else (pvcont nst)
           --1-- let !pvpath = if hdeep > 0 && tp > 0 then Seq [] else (pvcont nst)
               -- !hs = nextlev hscore
-              ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'] }
+              ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'],
+                              pathOrig = "TT" }
               --2-- ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [] }
               hs = - ttpath
           if hdeep >= d && (tp == 2 || tp == 1 && hs > a || tp == 0 && hs <= a)
@@ -678,7 +690,7 @@ pvInnerLoopExten b d spec exd nst = do
                             -- here: next node type?
                             if reduced && d >= lmrMinDFRes
                                then do	-- re-search with no reduce is expensive!
-                                  let !d'' = fst $ nextDepth (d+exd') (draft old) mn False (ownnt nst == PVNode)
+                                  let !d'' = fst $ nextDepth (d+exd') mn False (ownnt nst == PVNode)
                                   pvSearch nst (-b) (-a) d'' pvpath nulMoves
                                else pvSearch nst (-b) (-a) d' pvpath nulMoves
                           else return s1
@@ -711,7 +723,9 @@ checkFailOrPVLoop xstats b d e s nst = do
             --     lift $ learn d typ b s0
             -- when debug $ logmes $ "<-- pvInner: beta cut: " ++ show s ++ ", return " ++ show b
             put sst { stats = statCut (stats sst) mn }
-            let nst1 = nst { cursc = combinePath s b, weak = False, pvcont = Seq [] }
+            -- let nst1 = nst { cursc = combinePath s b, weak = False, pvcont = Seq [] }
+            let nst1 = nst { cursc = csc, weak = False, pvcont = Seq [] }
+                !csc = if s > b then combinePath s b else s
             -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
             return (True, nst1)
        else if s > a
@@ -747,8 +761,8 @@ genAndSort lastpath kill d pv = do
 
 -- Late Move Reduction
 -- {-# INLINE nextDepth #-}
-nextDepth :: Int -> Int -> Int -> Bool -> Bool -> (Int, Bool)
-nextDepth !d rd w !lmr !pv = (m0d, reduced)
+nextDepth :: Int -> Int -> Bool -> Bool -> (Int, Bool)
+nextDepth !d w !lmr !pv = (m0d, reduced)
     where !nd = if lmr then d - k else d1
           !idx = (min lmrMaxDepth d, min lmrMaxWidth w)
           k  = if pv then lmrReducePv ! idx else lmrReduceArr ! idx
@@ -773,9 +787,9 @@ isPruneFutil d a b
     | otherwise = do
         -- checkMe a "isPruneFutere 1"
         -- checkMe b "isPruneFutere 2"
-        let !margin = pathFromScore $ futilMargins ! d
+        let !margin = pathFromScore "margin" $ futilMargins ! d
         -- v <- lift materVal	-- can we do here direct static evaluation?
-        v <- liftM pathFromScore $ pvQSearch (pathScore a) (pathScore b) 0
+        v <- liftM (pathFromScore "pvQSearch 2") $ pvQSearch (pathScore a) (pathScore b) 0
         if v < a && v + margin <= a
            then return (True, onlyScore a)
            else if v > b && v - margin >= b

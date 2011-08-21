@@ -42,13 +42,19 @@ import Moves.History
 
 instance Score Int where
     {-# INLINE nextlev #-}
-    nextlev !i
-        | i >= mateScore - 255    = -im
-        | i <= (-mateScore) + 255 = -ip
-        | otherwise               = -i
-        where !ip = i + 1
-              !im = i - 1
-    nearmate i = i >= 1200 || i <= -1200
+    nextlev i = -i
+        -- | i >= mateScore - 255    = -im
+        -- | i <= (-mateScore) + 255 = -ip
+        -- | otherwise               = -i
+        -- where !ip = i + 10
+        --       !im = i - 10
+    nearmate i = i >= mateScore - 255 || i <= -mateScore + 255
+    corrmate d i
+        | i >= mateScore  = iw
+        | i <= -mateScore = il
+        | otherwise       = i
+        where !il = i + d
+              !iw = i - d
 
 instance Edge Move where
     {-# INLINE special #-}
