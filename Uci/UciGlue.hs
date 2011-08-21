@@ -18,7 +18,7 @@ instance CtxMon CtxIO where
     tellCtx = talkToContext
 
 -- Parameter of the search at this level:
-aspirWindow   = 16	-- initial aspiration window
+aspirWindow   = 12	-- initial aspiration window
 showEvalStats = False	-- show eval statistics in logfile
 
 -- One iteration in the search for the best move

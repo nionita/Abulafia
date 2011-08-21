@@ -23,8 +23,13 @@ import Search.SearchMonad
 
 debug = False
 
--- Some fix search parameter
+-- Parameter for aspiration
 useAspirWin = True
+aspIncr :: Score s => Array Int s
+aspIncr = array (1, 3) [ (1, 64), (2, 16), (3, 4) ]
+aspTries = 3
+
+-- Some fix search parameter
 depthForCM  = 7 -- from this depth inform current move
 minToStore  = 1 -- minimum remaining depth to store the position in hash
 minToRetr   = 1 -- minimum remaining depth to retrieve
@@ -293,29 +298,45 @@ alphaBeta abc = do
              Just sp -> do
                 let !alpha1 = sp - window abc
                     !beta1  = sp + window abc
-                informStr $ "+++ Start search with d = " ++ show d
-                              ++ " a = " ++ show alpha1
-                              ++ " b = " ++ show beta1
+                aspirWin alpha1 beta1 d lpv rmvs aspTries
+{--
                 r1@((s1, es1, _), _) <- runSearch (searchReduced alpha1 beta1) pvs0
                 if s1 > alpha1 && s1 < beta1 && not (nullSeq es1)
                     then return r1
                     else runSearch searchFull pvs0
-{--
-                    else if s1 >= beta1
-                        then do
-                            informStr $ "*** Research high with d = " ++ show d
-                              ++ " a = " ++ show alpha1
-                            runSearch (searchHigh alpha1) pvs0
-                        else do
-                            informStr $ "*** Research low with d = " ++ show d
-                              ++ " b = " ++ show beta1
-                            runSearch (searchLow   beta1) pvs0
 --}
              Nothing -> do
                 informStr $ "+++ Start search with d = " ++ show d ++ " (full)"
-                runSearch searchFull pvs0
-         else runSearch searchFull pvs0
-    return $ case r of ((s, Seq path, Alt rmvs), _) -> (s, path, rmvs)
+                liftM fst $ runSearch searchFull pvs0
+         else liftM fst $ runSearch searchFull pvs0
+    return $ case r of (s, Seq path, Alt rmvs) -> (s, path, rmvs)
+
+{--
+aspirWin :: Node m e s => s -> s -> Int -> Seq e -> Alt e -> Int -> m (s, Seq e, Alt e)
+aspirWin _ _ d lpv rmvs 0 = liftM fst $ runSearch (pvRootSearch alpha0 beta0 d lpv rmvs True) pvsInit
+aspirWin a b d lpv rmvs t = do
+    r@(s, p, ms) <- liftM fst $ runSearch (pvRootSearch a b d lpv rmvs True) pvsInit
+    if s <= a
+       then aspirWin (2*s - a) b d p ms (t-1)
+       else if s >= b
+            then aspirWin a (2*b - s) d p ms (t-1)
+            else if nullSeq p
+                    then aspirWin (2*s - a) (2*b - s) d lpv rmvs (t-1)
+                    else return r
+--}
+
+aspirWin :: Node m e s => s -> s -> Int -> Seq e -> Alt e -> Int -> m (s, Seq e, Alt e)
+aspirWin _ _ d lpv rmvs 0 = liftM fst $ runSearch (pvRootSearch alpha0 beta0 d lpv rmvs True) pvsInit
+aspirWin a b d lpv rmvs t = do
+    r@(s, p, ms) <- liftM fst $ runSearch (pvRootSearch a b d lpv rmvs True) pvsInit
+    if s <= a
+       then aspirWin (a - incr) b d p ms (t-1)
+       else if s >= b
+            then aspirWin a (b + incr) d p ms (t-1)
+            else if nullSeq p
+                    then aspirWin (a - incr) (b + incr) d lpv rmvs (t-1)
+                    else return r
+    where incr = aspIncr!t
 
 -- Root PV Search
 pvRootSearch :: Node m e s => s -> s -> Int -> Seq e -> Alt e -> Bool
@@ -340,12 +361,14 @@ pvRootSearch a b d lastpath rmvs aspir = do
     nstf <- pvLoop (pvInnerRoot (pathFromScore "Beta" b) d) nsti edges
     rsr <- if weak nstf		-- failed low
               then do
-                 when (not aspir) $ do
+                when (not aspir) $ do
                      s <- get
                      lift $ logmes $ "Failed low at root! Status: " ++ show s
-                 return (a, Seq [], edges)	-- just to permit aspiration to retry
+                return (a, Seq [], edges)	-- just to permit aspiration to retry
               else do
-                 (s, p) <- lift $ choose $ sortBy (comparing fstdesc)
+                 (s, p) <- if (pathScore (cursc nstf) >= b)
+                              then return (pathScore (cursc nstf), unseq $ pathMoves (cursc nstf))
+                              else lift $ choose $ sortBy (comparing fstdesc)
                                          $ map (\(Pvsl p _ _) -> (pamaScore p, unseq $ pathMoves p))
                                          $ filter pvGood $ pvsl nstf
                  when (d < depthForCM) $ informBest s d p
@@ -464,7 +487,7 @@ checkFailOrPVRoot xstats b d e s nst = do
                           else nst
             return (False, nst1 {movno = mn + 1, pvsl = xpvslg, pvcont = Seq []})
        else if s >= b
-               then do	-- what when a root move fails high?
+               then do	-- what when a root move fails high? We are in aspiration
                     let typ = 1	-- best move is e and is beta cut (score is lower limit)
                     when (d >= minToStore) $ lift $ store d typ (pathScore s) e nodes
                     -- when inschool $ do
@@ -473,8 +496,9 @@ checkFailOrPVRoot xstats b d e s nst = do
                     lift $ betaMove True d (absdp sst) e
                     put sst { stats = statCut (stats sst) mn }
                     -- let nst1 = nst { cursc = combinePath s b, weak = False,
-                    let nst1 = nst { cursc = csc, weak = False, pvsl = xpvslg, pvcont = Seq [] }
-                        !csc = if s > b then combinePath s b else s
+                    -- let nst1 = nst { cursc = csc, weak = False, pvsl = xpvslg, pvcont = Seq [] }
+                    --    !csc = if s > b then combinePath s b else s
+                    let nst1 = nst { cursc = s, weak = False, pvsl = xpvslg, pvcont = Seq [] }
                     -- lift $ logmes $ "Root move " ++ show e ++ " failed high: " ++ show s
                     -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
                     return (True, nst1)
@@ -497,8 +521,11 @@ checkFailOrPVRoot xstats b d e s nst = do
                          -- when in a cut node and the move dissapointed - negative history
                          when (useNegHist && forpv nst && a == b - 1 && mn <= negHistMNo)
                               $ lift $ betaMove False d (absdp sst) e
-                         let nst1 = nst { movno = mn + 1, pvsl = xpvslb, pvcont = Seq [] }
-                         return (False, nst1)
+                         if (forpv nst)
+                            then return (True, nst { cursc = s })	-- i.e we failed low in aspiration
+                            else do
+                              let nst1 = nst { movno = mn + 1, pvsl = xpvslb, pvcont = Seq [] }
+                              return (False, nst1)
 
 -- {-# SPECIALIZE insertToPvs :: Score Int => Int -> Pvsl e Int -> [Pvsl e Int] -> [Pvsl e Int] #-}
 insertToPvs :: (Show e, Edge e, Score s) => Int -> Pvsl e s -> [Pvsl e s] -> [Pvsl e s]
