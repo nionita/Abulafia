@@ -394,12 +394,11 @@ pvInnerRootExten b d spec exd nst = do
     -- pindent $ "exd' = " ++ show exd'
     pvpath <- if not . nullSeq $ pvcont nst then return (pvcont nst) else bestMoveFromHash
     tact <- lift tactical
-    let !reduce = lmrActive && not (tact || spec || exd > 0 || d < lmrMinDRed)
-        !(d', reduced) = nextDepth (d+exd') (draft old) (movno nst) reduce (ownnt nst == PVNode)
+    let reduce = okToReduce tact
+        (!d', reduced) = nextDepth (d+exd') (draft old) (movno nst) reduce (forpv nst && a < b - 1)
     -- when (d' < d-1) $ pindent $ "d' = " ++ show d'
-    let !a = cursc nst
     -- checkMe a $ "pvInnerRootExten 2:" ++ show a
-    if ownnt nst == PVNode
+    if forpv nst
        then pvSearch nst (-b) (-a) d' pvpath nulMoves
        else do
            -- no futility pruning for root moves!
@@ -410,15 +409,18 @@ pvInnerRootExten b d spec exd nst = do
            -- -- checkMe s1 "pvInnerRootExten 3"
            if -s1 > a -- we didn't fail low, so we need re-search
               then do
-                 reSearch
+                 reSearch	-- here: node type?
                  -- pindent $ "Research! (" ++ show s1 ++ ")"
-                 if reduced
+                 if reduced && d > 1
                     then do	-- re-search with no reduce for root moves
                       -- let d''= fst $! nextDepth (d+exd') (draft old) (movno nst) False (forpv nst)
                       let d''= fst $! nextDepth (d+exd') (draft old) (movno nst) False True
                       pvSearch nst (-b) (-a) d'' pvpath nulMoves
                     else pvSearch nst (-b) (-a) d' pvpath nulMoves
               else return s1
+    where !inPv = ownnt nst == PVNode
+          a = cursc nst
+          okToReduce t = lmrActive && not (inPv || spec || exd > 0 || d < lmrMinDRed) && not t
 
 -- {-# SPECIALIZE checkFailOrPVRoot :: Node m e Int => PVState e Int -> Int -> Int -> Int -> e -> Int -> [e]
 --                   -> Search m e Int (Bool, [e]) #-}
@@ -512,7 +514,7 @@ insertToPvs d p ps@(q:qs)
 --                         -> Search m e Int (Int, [e]) #-}
 pvSearch :: Node m e s => NodeState e s -> Path e s -> Path e s -> Int -> Seq e -> Int
                        -> Search m e s (Path e s)
-pvSearch _ a b d _ _ | d <= 0 = do
+pvSearch _ a b !d _ _ | d <= 0 = do
     -- checkMe a "pvSearch 1"
     -- checkMe b "pvSearch 2"
     v <- pvQSearch (pathScore a) (pathScore b) 0
@@ -631,13 +633,12 @@ pvInnerLoopExten b d spec exd nst = do
     old <- get
     tact <- lift tactical
     exd' <- reserveExtension (usedext old) exd
-    let !mn = movno nst
-        !a = cursc nst
+    let mn = movno nst
         -- late move reduction
-        !reduce = lmrActive && not (nearmate a || tact || spec || exd > 0 || d < lmrMinDRed)
-        !(d', reduced) = nextDepth (d+exd') (draft old) mn reduce (ownnt nst == PVNode)
+        !reduce = okToReduce tact
+        (!d', reduced) = nextDepth (d+exd') (draft old) mn reduce (forpv nst && a < b - 1)
     -- checkMe a "pvInnerLoopExten 2"
-    if ownnt nst == PVNode
+    if forpv nst
        then do
           pvpath <- if nullSeq (pvcont nst) then bestMoveFromHash else return (pvcont nst)
           pvSearch nst (-b) (-a) d' pvpath nulMoves
@@ -681,6 +682,10 @@ pvInnerLoopExten b d spec exd nst = do
                                   pvSearch nst (-b) (-a) d'' pvpath nulMoves
                                else pvSearch nst (-b) (-a) d' pvpath nulMoves
                           else return s1
+    where !inPv = ownnt nst == PVNode
+          a = cursc nst
+          okToReduce t = lmrActive && not (inPv || nearmate a || spec || exd > 0 || d < lmrMinDRed)
+                             && not t
 
 -- {-# SPECIALIZE checkFailOrPVLoop :: Node m e Int => PVState e Int -> Int -> Int -> Int -> e -> Int -> [e] -> Search m e Int (Bool, [e]) #-}
 checkFailOrPVLoop :: Node m e s => SStats -> Path e s -> Int -> e -> Path e s
@@ -741,14 +746,16 @@ genAndSort lastpath kill d pv = do
     where pv' = pv || not (nullSeq lastpath)
 
 -- Late Move Reduction
-{-# INLINE nextDepth #-}
+-- {-# INLINE nextDepth #-}
 nextDepth :: Int -> Int -> Int -> Bool -> Bool -> (Int, Bool)
-nextDepth d rd w lmr pv = (max 0 nd, reduced)
-    where !nd = if lmr then d - k else d - 1
-          idx = (min lmrMaxDepth d, min lmrMaxWidth w)
+nextDepth !d rd w !lmr !pv = (m0d, reduced)
+    where !nd = if lmr then d - k else d1
+          !idx = (min lmrMaxDepth d, min lmrMaxWidth w)
           k  = if pv then lmrReducePv ! idx else lmrReduceArr ! idx
           -- dg = (d + deGran - 1) `div` deGran
-          !reduced = nd < d - 1
+          !reduced = nd < d1
+          !d1 = d - 1
+          !m0d = max 0 nd
 
 -- This is a kind of monadic fold optimized for (beta) cut
 {-# INLINE pvLoop #-}
