@@ -26,8 +26,16 @@ debug = False
 -- Parameter for aspiration
 useAspirWin = True
 aspIncr :: Score s => Array Int s
-aspIncr = array (1, 3) [ (1, 64), (2, 16), (3, 4) ]
+aspIncr = array (1, 3) [ (1, 128), (2, 32), (3, 8) ]
 aspTries = 3
+-- Aspiration parameter optimization - 300 games:
+-- First digit: tries, second: version (see below)
+-- a21 = 64, 8		-> elo  -8 +- 59
+-- a22 = 64, 16		-> elo  -2 +- 58
+-- a23 = 128, 16	-> elo -32 +- 60
+-- a31 = 64, 16, 4	-> elo -10 +- 57
+-- a32 = 128, 32, 8	-> elo +53 +- 60 --> this is it
+-- a33 = 100, 20, 4	-> elo   0 +- 58
 
 -- Some fix search parameter
 depthForCM  = 7 -- from this depth inform current move
@@ -43,12 +51,14 @@ lmrMinDFRes = 8		-- minimum depth for full research when failed high in null win
 lmrMinDRed  = 2		-- minimum reduced depth
 lmrMaxDepth = 15
 lmrMaxWidth = 63
-lmrPv     = 7
-lmrRest   = 5
--- lmrPv     = 3.8
--- lmrRest   = 2.2
--- lmrPv     = 3.5
--- lmrRest   = 2.5
+lmrPv     = 13
+lmrRest   = 8
+-- LMR parameter optimisation (lmrPv, lmrRest):
+-- lm1 = 2, 1	-> elo -127 +- 58
+-- lm2 = 3, 2	-> elo  -14 +- 52
+-- lm3 = 5, 3	-> elo   17 +- 55
+-- lm4 = 8, 5	-> elo   32 +- 53
+-- lm5 = 13, 8	-> elo   92 +- 54 --> this is it
 lmrReducePv, lmrReduceArr :: UArray (Int, Int) Int
 lmrReducePv  = array ((1, 1), (lmrMaxDepth, lmrMaxWidth))
     [((i, j), ceiling $ logrd i j lmrPv) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
