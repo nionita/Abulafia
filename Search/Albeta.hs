@@ -98,7 +98,6 @@ qsDelta     = 1100
 class (Ord s, Num s, Bounded s) => Score s where
     nextlev  :: s -> s
     nearmate :: s -> Bool
-    corrmate :: Int -> s -> s
 
 class Edge e where
     special :: e -> Bool
@@ -231,7 +230,6 @@ instance Bounded s => Bounded (Path e s) where
 instance (Show e, Edge e, Score s) => Score (Path e s) where
     nextlev p = p { pathScore = nextlev (pathScore p) }
     nearmate  = nearmate . pathScore
-    corrmate _ p = p { pathScore = corrmate (pathDepth p) (pathScore p) }
 
 -- Read only parameters of the search, so that we can change them programatically
 data PVReadOnly
@@ -379,7 +377,7 @@ pvRootSearch a b d lastpath rmvs aspir = do
                  (s, p) <- if (pathScore (cursc nstf) >= b)
                               then return (pathScore (cursc nstf), unseq $ pathMoves (cursc nstf))
                               else lift $ choose $ sortBy (comparing fstdesc)
-                                         $ map (\(Pvsl p _ _) -> (pamaScore p, unseq $ pathMoves p))
+                                         $ map (\(Pvsl p _ _) -> (pathScore p, unseq $ pathMoves p))
                                          $ filter pvGood $ pvsl nstf
                  when (d < depthForCM) $ informBest s d p
                  let !best = head p
@@ -388,7 +386,6 @@ pvRootSearch a b d lastpath rmvs aspir = do
     reportStats
     return rsr
     where fstdesc (a, _) = -a
-          pamaScore = pathScore . corrmate 0
 
 -- This is the inner loop of the PV search of the root, executed at root once per possible move
 -- See the parameter
@@ -419,7 +416,7 @@ pvInnerRoot b d nst e = do
     -- undo the move
     lift $ undoEdge e
     modify $ \s -> s { absdp = absdp old, usedext = usedext old }
-    let s' = nextlev (addToPath e s)
+    let s' = addToPath e (nextlev s)
     -- -- checkMe s' "pvInnerRoot 3"
     -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
     -- lift $ informStr $ "<- " ++ show e ++ " (" ++ show (pathScore s)
@@ -661,7 +658,7 @@ pvInnerLoop b d nst e = do
     -- checkMe s "pvInnerLoop 2"
     lift $ undoEdge e	-- undo the move
     modify $ \s -> s { absdp = absdp old, usedext = usedext old }
-    let s' = nextlev (addToPath e s)
+    let s' = addToPath e (nextlev s)
     -- -- checkMe s' "pvInnerLoop 3"
     -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
     checkFailOrPVLoop (stats old) b d e s' nst
