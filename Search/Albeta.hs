@@ -338,7 +338,7 @@ aspirWin _ _ d lpv rmvs 0 = liftM fst $ runSearch (pvRootSearch alpha0 beta0 d l
 aspirWin a b d lpv rmvs t = do
     r@(s, p, ms) <- liftM fst $ runSearch (pvRootSearch a b d lpv rmvs True) pvsInit
     if s <= a
-       then aspirWin (a - incr) b d p ms (t-1)
+       then aspirWin (a - incr) b d lpv rmvs (t-1)
        else if s >= b
             then aspirWin a (b + incr) d p ms (t-1)
             else if nullSeq p

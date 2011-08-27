@@ -42,7 +42,7 @@ import Moves.History
 
 instance Score Int where
     {-# INLINE nextlev #-}
-    nextlev i
+    nextlev !i
         | i >= mateScore - 255    = -im
         | i <= (-mateScore) + 255 = -ip
         | otherwise               = -i
