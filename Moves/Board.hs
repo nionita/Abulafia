@@ -7,7 +7,7 @@ module Moves.Board (
     genMoveCapt, genMoveCast, genMoveNCapt, genMoveTransf, genMovePCapt, genMovePNCapt, genMoveFCheck,
     genMoveNCaptToCheck,
     updatePos, illegalPos,
-    legalMove, alternateMoves,
+    legalMove, alternateMoves, nonCapt,
     doFromToMove, reverseMoving
     ) where
 
@@ -639,6 +639,11 @@ legalMove p m
     | otherwise = False
     where src = fromSquare m
           dst = toSquare m
+
+nonCapt :: MyPos -> Move -> Bool
+nonCapt p m
+    | Busy _ _ <- tabla p (toSquare m) = False
+    | otherwise                        = True
 
 canMove :: Piece -> MyPos -> Square -> Square -> Bool
 canMove Pawn p src dst

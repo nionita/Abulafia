@@ -7,7 +7,7 @@ Name:                AbaAba
 -- The package version. See the Haskell package versioning policy
 -- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
 -- standards guiding when and how versions should be incremented.
-Version:             0.58
+Version:             0.59
 
 -- A short (one-line) description of the package.
 Synopsis:            Chess engine
@@ -46,10 +46,6 @@ Flag Profile
   Description:	Enables profile support
   Default:	False
 
-Flag ViaC
-  Description:	Generates code via C
-  Default:	False
-
 Executable PlotEvolve
   Main-is:	Main\EvolveToPlot.hs
   Build-depends:	base >= 4, filepath, regex-compat
@@ -81,10 +77,6 @@ Executable AbaAba
   else
     C-sources: Cbits\rts_hooks.c
     -- GHC-Options: -with-rtsopts="-N2 -smemuse.txt -M2048m -H1024m"
-    if flag(viac)
-      GHC-Options: -fvia-C -optc-O3
-    else
-      GHC-Options: -fasm
 
 -- Executable LearnSTS
 --   Main-is:             Tests/LearnSTS.hs
@@ -126,9 +118,3 @@ Executable Perft
    GHC-Options: -O2 -funbox-strict-fields -threaded -keep-tmp-files
    if flag(profile)
      GHC-Options: -auto-all
-   else
-     if flag(viac)
-      -- GHC-Options: -keep-s-files -fvia-C -O2 -optc-O3 -threaded
-       GHC-Options: -fvia-C -optc-O3
-     else
-       GHC-Options: -fasm

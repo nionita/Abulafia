@@ -395,8 +395,8 @@ answer s = do
     liftIO $ writeChan (writer ctx) s
 
 -- Version and suffix:
-progVersion = "0.58"
-progVerSuff = " last"
+progVersion = "0.59"
+progVerSuff = ""
 
 -- These are the possible answers from engine to GUI:
 idName = "id name AbaAba " ++ progVersion ++ progVerSuff

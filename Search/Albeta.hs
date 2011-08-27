@@ -117,9 +117,10 @@ class (Monad m, Eq e, Show e, Edge e, Score s, Show s) =>
   Node m e s | m -> e, m -> s, s -> m where
     staticVal :: m s  -- static evaluation of a node
     materVal  :: m s  -- material evaluation (for prune purpose)
-    genEdges :: Int -> Int -> Bool -> m [e]  -- generate all legal edges
+    genEdges :: Int -> Int -> Bool -> m ([e], [e])  -- generate all legal edges
     genTactEdges :: m [e]  -- generate all edges in tactical positions
     legalEdge :: e -> m Bool	-- is the move legal?
+    killCandEdge :: e -> e -> m Bool	-- is the move killer candidate?
     inSeq :: e -> e -> m Bool	-- can 2 moves be in sequence?
     tactical :: m Bool -- if a position is tactical, search further
     doEdge   :: e -> Bool -> m (DoResult s)
@@ -153,7 +154,9 @@ data Pvsl e s = Pvsl {
         pvGood  :: !Bool	-- beta cut or alpha improvement
     } deriving Show
 
-data (Show e, Show s) => Killer e s = NoKiller | OneKiller e s | TwoKillers e s e s deriving Show
+data (Show e, Show s)
+     => Killer e s = NoKiller | OneKiller !e !s | TwoKillers !e !s !e !s
+                         deriving Show
 
 data SStats = SStats {
         sNodes, sNodesQS :: !Int,
@@ -173,6 +176,8 @@ nextNodeType t      = t
 
 newtype Alt e = Alt { unalt :: [e] } deriving Show
 newtype Seq e = Seq { unseq :: [e] } deriving Show
+
+firstMove = head . unseq
 
 data Path e s
     = Path {
@@ -255,7 +260,7 @@ data NodeState e s
           movno :: !Int,	-- current move number
           pvsl  :: [Pvsl e s],	-- principal variation list (at root) with node statistics
           weak  :: !Bool,	-- to recognize all nodes
-          killer :: Killer e (Path e s), -- the current killer moves
+          killer :: Killer e s, -- the current killer moves
           pvcont :: Seq e	-- a pv continuation from the previous iteration, if available
       }
 
@@ -332,7 +337,7 @@ pvRootSearch a b d lastpath rmvs aspir = do
                 else if null (unseq lastpath)
                         then return rmvs
                         else do
-                           let !lm = head (unseq lastpath)
+                           let !lm = firstMove lastpath
                            return $ Alt $ lm : delete lm (unalt rmvs)
     -- lift $ informStr $ "Root moves: " ++ show edges
     -- pvcont is the pv continuation from the last iteration
@@ -356,6 +361,7 @@ pvRootSearch a b d lastpath rmvs aspir = do
                      !xrmvs = Alt $ best : delete best (unalt edges)	-- best on top
                  return (s, Seq p, xrmvs)
     reportStats
+    lift $ informStr $ "*** Killers at root: " ++ show (killer nstf)
     return rsr
     where fstdesc (a, _) = -a
 
@@ -503,7 +509,18 @@ checkFailOrPVRoot xstats b d e s nst = do
                          if (forpv nst)
                             then return (True, nst { cursc = s })	-- i.e we failed low in aspiration
                             else do
-                              let nst1 = nst { movno = mn + 1, pvsl = xpvslb, pvcont = Seq [] }
+                              let es = unseq $ pathMoves s
+                                  mm = head es
+                                  km = head $ drop 1 es
+                                  s1 = - pathScore s
+                              kill1 <- if d >= 2 && moreThanOne es
+                                          then do
+                                              iskm <- lift $ killCandEdge mm km
+                                              if iskm then return $ pushKiller km s1 (killer nst)
+                                                      else return $ killer nst
+                                          else return $ killer nst
+                              let nst1 = nst { movno = mn + 1, pvsl = xpvslb,
+                                               killer = kill1, pvcont = Seq [] }
                               return (False, nst1)
 
 -- {-# SPECIALIZE insertToPvs :: Score Int => Int -> Pvsl e Int -> [Pvsl e Int] -> [Pvsl e Int] #-}
@@ -548,10 +565,7 @@ pvSearch nst !a !b d lastpath lastnull = do
        -- then pindent ("<= " ++ show b) >> return (onlyScore b)
        then return $ onlyScore b
        else do
-          ---- Here: we dont know where to put the killer
-          ---- so we deactivate them for now
-          let kill = killer nst
-          edges <- genAndSort lastpath kill d (forpv nst)	-- here: (ownnt nst /= AllNode)
+          edges <- genAndSort lastpath (killer nst) d (forpv nst)	-- here: (ownnt nst /= AllNode)
           if noMove edges
              then do
                   v <- lift staticVal
@@ -559,15 +573,11 @@ pvSearch nst !a !b d lastpath lastnull = do
                   return $ pathFromScore ("static: " ++ show v) v
              else do
                   -- Loop thru the moves
-                  -- modify $ \s -> s { forpv = True, cursc = a, movno = 1,
-                  --                    killer = NoKiller, weak = True }
-                  --                    -- killer = NoKiller, weak = True, expnt = PVNode }
                   let !pvpath = if nullSeq lastpath then Seq [] else Seq $ tail $ unseq lastpath
                       !nsti = nst0 { ownnt = deepNodeType (ownnt nst), cursc = a, pvcont = pvpath }
                   nodes0 <- gets stats >>= return . sNodes
                   nstf <- pvLoop (pvInnerLoop b d) nsti edges
                   nodes1 <- gets stats >>= return . sNodes
-                  -- let !kill1  = pushKiller (head $ pathMoves s) s kill
                   s <- if weak nstf
                           then do
                               inschool <- gets $ school . ronly
@@ -743,7 +753,7 @@ checkFailOrPVLoop xstats b d e s nst = do
               --     s0 <- pvQSearch a b 0
               --     lift $ learn d typ s s0
               let !mn1 = mn + 1
-              let nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
+                  nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
                                forpv = False, movno = mn1, weak = False, pvcont = Seq [] }
               -- lift $ informStr $ "Better (" ++ show s ++ "): " ++ show np
               return (False, nst1)
@@ -752,17 +762,29 @@ checkFailOrPVLoop xstats b d e s nst = do
               when (useNegHist && forpv nst && a == b - 1 && mn <= negHistMNo)
                    $ lift $ betaMove False d (absdp sst) e
               let !mn1 = mn + 1
-              let nst1 = nst { movno = mn1, pvcont = Seq [] }
+                  es = unseq $ pathMoves s
+                  mm = head es
+                  km = head $ drop 1 es
+                  s1 = - pathScore s
+              kill1 <- if d >= 2 && moreThanOne es
+                          then do
+                              iskm <- lift $ killCandEdge mm km
+                              if iskm then return $ pushKiller km s1 (killer nst)
+                                      else return $ killer nst
+                          else return $ killer nst
+              let nst1 = nst { movno = mn1, killer = kill1, pvcont = Seq [] }
               return (False, nst1)
 
 -- We don't sort the moves here, they have to come sorted from genEdges
 -- But we consider the best moves first (best from previous iteration, killers)
-{-# INLINE genAndSort #-}
-genAndSort :: Node m e s => Seq e -> Killer e (Path e s) -> Int -> Bool -> Search m e s (Alt e)
+-- {-# INLINE genAndSort #-}
+genAndSort :: Node m e s => Seq e -> Killer e s -> Int -> Bool -> Search m e s (Alt e)
 genAndSort lastpath kill d pv = do
-    kl <- liftM Alt $ lift (filterM legalEdge $ unalt $ killerToList kill)
     adp <- gets absdp 
-    lift $ liftM (bestFirst lastpath kl . Alt) (genEdges d adp pv')
+    kl <- lift $ filterM legalEdge $ killerToList kill
+    esp <- lift $ genEdges d adp pv'
+    let es = bestFirst (unseq lastpath) kl esp
+    return $ Alt es
     where pv' = pv || not (nullSeq lastpath)
 
 -- Late Move Reduction
@@ -813,7 +835,8 @@ pvQSearch a b c = do				   -- to avoid endless loops
     tact <- lift tactical
     if tact
        then do
-           edges <- liftM Alt $ lift $ genEdges 0 0 False
+           (es1, es2) <- lift $ genEdges 0 0 False
+           let edges = Alt $ es1 ++ es2
            if noMove edges
               -- then qindent ("<= " ++ show stp) >> return stp
               then return stp
@@ -953,33 +976,38 @@ pindent, qindent :: Node m e s => String -> Search m e s ()
 pindent = indentPassive
 qindent = indentPassive
 
-bestFirst :: Eq e => Seq e -> Alt e -> Alt e -> Alt e
-bestFirst path kl es
-    | null (unseq path) = Alt $ kll ++ delall esl kll
-    | otherwise         = Alt $ e : kle ++ delall esl (e : kll)
-    where kle = delete e kll
-          delall = foldr delete
-          e = head . unseq $ path
-          kll = unalt kl
-          esl = unalt es
+bestFirst :: Eq e => [e] -> [e] -> ([e], [e]) -> [e]
+bestFirst path kl (es1, es2)
+    | null path = es1 ++ kl ++ delall es2 kl
+    | otherwise = e : delete e es1 ++ kl ++ delall es2 (e : kl)
+    where delall = foldr delete
+          e = head path
 
 statCut :: SStats -> Int -> SStats
 statCut s n = s { sCuts = sCuts s + 1, sCutMovNo = sCutMovNo s + n }
 
 pushKiller :: (Eq e, Show e, Ord s, Show s) => e -> s -> Killer e s -> Killer e s
-pushKiller e s NoKiller = OneKiller e s
-pushKiller e s (OneKiller e1 s1) = if s > s1
-                                      then TwoKillers e s e1 s1
-                                      else TwoKillers e1 s1 e s
-pushKiller e s tk@(TwoKillers e1 s1 e2 s2)
-    | s > s1    = TwoKillers e s e1 s1
-    | s > s2    = TwoKillers e1 s1 e s
-    | otherwise = tk
+pushKiller !e s NoKiller = OneKiller e s
+pushKiller !e s ok@(OneKiller e1 s1)
+    = if e == e1
+         then ok
+         else if s > s1
+                 then TwoKillers e s e1 s1
+                 else TwoKillers e1 s1 e s
+pushKiller !e s tk@(TwoKillers e1 s1 e2 s2)
+    | e == e1 || e == e2 = tk
+    | s > s1             = TwoKillers e s e1 s1
+    | s > s2             = TwoKillers e1 s1 e s
+    | otherwise          = tk
 
-killerToList :: (Show e, Show s) => Killer e s -> Alt e
-killerToList NoKiller = Alt []
-killerToList (OneKiller e _) = Alt [e]
-killerToList (TwoKillers e1 _ e2 _) = Alt [e1, e2]
+killerToList :: (Show e, Show s) => Killer e s -> [e]
+killerToList NoKiller = []
+killerToList (OneKiller e _) = [e]
+killerToList (TwoKillers e1 _ e2 _) = [e1, e2]
+
+moreThanOne :: [e] -> Bool
+moreThanOne (_:_:_) = True
+moreThanOne _       = False
 
 --- Communication to the outside - some convenience functions ---
 

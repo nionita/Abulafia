@@ -68,6 +68,7 @@ instance CtxMon m => Node (Game m) Move Int where
     {-# INLINE tactical #-}
     tactical = tacticalPos
     legalEdge = isMoveLegal
+    killCandEdge = isKillCand
     inSeq  = okInSequence
     doEdge = doMove False
     undoEdge = undoMove
@@ -123,7 +124,7 @@ debugGen = False
 useCaptWL = False
 loosingLast = False
 
-genMoves :: CtxMon m => Int -> Int -> Bool -> Game m [Move]
+genMoves :: CtxMon m => Int -> Int -> Bool -> Game m ([Move], [Move])
 genMoves depth absdp pv = do
     p <- getPos
     -- when debugGen $ do
@@ -131,7 +132,7 @@ genMoves depth absdp pv = do
     let !c = moving p
         lc = map (genmv True p) $ genMoveFCheck p c
     if isCheck p c
-       then return lc
+       then return (lc, [])
        else do
             let l0 = genMoveCast p c
                 l1 = map (genmvT p) $ genMoveTransf p c
@@ -145,11 +146,12 @@ genMoves depth absdp pv = do
                      -- then sortMovesFromHash l3'
                      then sortMovesFromHist absdp l3'
                      else return l3'
-            return $! if useCaptWL
-                        then if loosingLast
-                                then concat [l1, l2w, l0, l3, l2l]
-                                else concat [l1, l2w, l2l, l0, l3]
-                        else concat [l1, l2, l0, l3]
+            -- return $! if useCaptWL
+            --             then if loosingLast
+            --                     then concat [l1, l2w, l0, l3, l2l]
+            --                     else concat [l1, l2w, l2l, l0, l3]
+            --             else (l1 ++ l2 ++ l0, l3)
+            return (l1 ++ l2, l0 ++ l3)
 
 onlyWinningCapts = True
 
@@ -279,6 +281,13 @@ isMoveLegal :: CtxMon m => Move -> Game m Bool
 isMoveLegal m = do
     t <- getPos
     return $! legalMove t m
+
+isKillCand :: CtxMon m => Move -> Move -> Game m Bool
+isKillCand mm ym
+    | toSquare mm == toSquare ym = return False
+    | otherwise = do
+        t <- getPos
+        return $! nonCapt t ym
 
 okInSequence :: CtxMon m => Move -> Move -> Game m Bool
 okInSequence m1 m2 = do
