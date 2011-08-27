@@ -32,7 +32,7 @@ goonFile   = "running"
 -- Some constants for playing one match
 cuteChess = "J:\\Chess\\cutechess-cli-win32\\cutechess-cli.exe"
 engPath   = "J:\\AbaAba\\dist\\build\\AbaAba"
-engine    = "AbaAba_0_57_sma"
+engine    = "AbaAba_0_58_pal1"
 noGames   = 2
 parGames  = "-games " ++ show noGames
 tcMoves   = 20	-- moves

@@ -265,20 +265,6 @@ noMove (Alt es) = null es
 nullSeq :: Seq e -> Bool
 nullSeq (Seq es) = null es
 
-{--
-{-# INLINE checkMe #-}
-checkMe :: Node m e s => Path e s -> String -> Search m e s ()
-checkMe p pula
-    | Just (e1, e2) <- first2Edges p = do
-        is <- lift $ inSeq e1 e2
-        if is then return () else lift $ stop e1 e2
-    | otherwise = return ()
-    where stop e1 e2 = informStr (pula ++ " ---> " ++ show e1 ++ ", " ++ show e2)
-                           >> informStr undefined
-          first2Edges (Path { pathMoves = Seq (e1:e2:_) }) = Just (e1, e2)
-          first2Edges _ = Nothing
---}
-
 pvsInit :: Node m e s => PVState e s
 pvsInit = PVState { ronly = pvro0, draft = 0, absdp = 0, usedext = 0, stats = stt0 }
 nst0 :: Node m e s => NodeState e s
@@ -318,20 +304,6 @@ alphaBeta abc = do
                 liftM fst $ runSearch searchFull pvs0
          else liftM fst $ runSearch searchFull pvs0
     return $ case r of (s, Seq path, Alt rmvs) -> (s, path, rmvs)
-
-{--
-aspirWin :: Node m e s => s -> s -> Int -> Seq e -> Alt e -> Int -> m (s, Seq e, Alt e)
-aspirWin _ _ d lpv rmvs 0 = liftM fst $ runSearch (pvRootSearch alpha0 beta0 d lpv rmvs True) pvsInit
-aspirWin a b d lpv rmvs t = do
-    r@(s, p, ms) <- liftM fst $ runSearch (pvRootSearch a b d lpv rmvs True) pvsInit
-    if s <= a
-       then aspirWin (2*s - a) b d p ms (t-1)
-       else if s >= b
-            then aspirWin a (2*b - s) d p ms (t-1)
-            else if nullSeq p
-                    then aspirWin (2*s - a) (2*b - s) d lpv rmvs (t-1)
-                    else return r
---}
 
 aspirWin :: Node m e s => s -> s -> Int -> Seq e -> Alt e -> Int -> m (s, Seq e, Alt e)
 aspirWin _ _ d lpv rmvs 0 = liftM fst $ runSearch (pvRootSearch alpha0 beta0 d lpv rmvs True) pvsInit
@@ -390,7 +362,7 @@ pvRootSearch a b d lastpath rmvs aspir = do
 -- This is the inner loop of the PV search of the root, executed at root once per possible move
 -- See the parameter
 -- Returns: ...flag if it was a beta cut and new status
--- {-# SPECIALIZE pvInnerRoot :: Node m e Int => Int -> Int -> [e] -> e -> Search m e Int (Bool, [e]) #-}
+-- {-# SPECIALIZE pvInnerRoot :: Node m e Int => Path e s -> Int -> NodeState e s -> e -> Search m e Int (Bool, NodeState e s) #-}
 pvInnerRoot :: Node m e s
             => Path e s	-- current beta
             -> Int	-- current search depth
