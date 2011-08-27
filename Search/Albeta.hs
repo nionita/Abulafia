@@ -297,13 +297,12 @@ alphaBeta abc = do
              Just sp -> do
                 let !alpha1 = sp - window abc
                     !beta1  = sp + window abc
-                aspirWin alpha1 beta1 d lpv rmvs aspTries
-{--
-                r1@((s1, es1, _), _) <- runSearch (searchReduced alpha1 beta1) pvs0
+                -- aspirWin alpha1 beta1 d lpv rmvs aspTries
+                r1@(s1, es1, _) <- liftM fst $ runSearch (searchReduced alpha1 beta1) pvs0
                 if s1 > alpha1 && s1 < beta1 && not (nullSeq es1)
+                -- if s1 > alpha1 && not (nullSeq es1)
                     then return r1
-                    else runSearch searchFull pvs0
---}
+                    else liftM fst $ runSearch searchFull pvs0
              Nothing -> do
                 informStr $ "+++ Start search with d = " ++ show d ++ " (full)"
                 liftM fst $ runSearch searchFull pvs0
