@@ -312,7 +312,7 @@ data KingSafe = KingSafe
 
 instance EvalItem KingSafe where
     evalItem p c _ = kingSafe p c
-    evalItemNDL _ = [("kingSafe", (1, (0, 100)))]
+    evalItemNDL _ = [("kingSafe", (1, (0, 20)))]
 
 -- This king safety is very primitive and will have to be reconsidered as one of the first!
 -- We just count total attacs in our kings zone and make the difference
@@ -348,7 +348,7 @@ data KingOpen = KingOpen
 
 instance EvalItem KingOpen where
     evalItem p c _ = kingOpen p c
-    evalItemNDL _ = [ ("kingOpenOwn", (-1, (-50, 50))), ("kingOpenAdv", (1, (-50, 50)))] 
+    evalItemNDL _ = [ ("kingOpenOwn", (-4, (-20, 20))), ("kingOpenAdv", (1, (-20, 20)))] 
 
 -- Openness can be tought only with pawns (like we take) or all pieces
 kingOpen :: MyPos -> Color -> IParams
@@ -378,7 +378,7 @@ data KingCenter = KingCenter
 
 instance EvalItem KingCenter where
     evalItem p c _ = kingCenter p c
-    evalItemNDL _  = [ ("kingCenter", (-16, (-150, 0))) ]
+    evalItemNDL _  = [ ("kingCenter", (-12, (-100, 20))) ]
 
 kingCenter :: MyPos -> Color -> IParams
 kingCenter p _ = [ kcd ]
@@ -396,10 +396,10 @@ data Mobility = Mobility	-- "safe" moves
 
 instance EvalItem Mobility where
     evalItem p c _ = mobDiff p c
-    evalItemNDL _ = [ ("mobilityKnight", (5, (0, 50))),
-                      ("mobilityBishop", (6, (0, 50))),
-                      ("mobilityRook", (3, (0, 50))),
-                      ("mobilityQueen", (1, (0, 50))) ]
+    evalItemNDL _ = [ ("mobilityKnight", (11, (0, 50))),
+                      ("mobilityBishop", (8, (0, 50))),
+                      ("mobilityRook", (9, (0, 50))),
+                      ("mobilityQueen", (3, (0, 50))) ]
 
 -- Here we do not calculate pawn mobility (which, calculated as attacs, is useless)
 mobDiff :: MyPos -> Color -> IParams
@@ -428,7 +428,7 @@ data Center = Center
 
 instance EvalItem Center where
     evalItem p c _ = centerDiff p c
-    evalItemNDL _ = [("centerAttacs", (5, (0, 250)))]
+    evalItemNDL _ = [("centerAttacs", (9, (0, 100)))]
 
 centerDiff :: MyPos -> Color -> IParams
 centerDiff p _ = [wb]
@@ -492,7 +492,7 @@ data LastLine = LastLine
 
 instance EvalItem LastLine where
     evalItem p c _ = lastline p c
-    evalItemNDL _ = [("lastLinePenalty", (5, (-50, 100)))]
+    evalItemNDL _ = [("lastLinePenalty", (3, (-30, 80)))]
 
 lastline :: MyPos -> Color -> IParams
 lastline p _ = [cdiff]
@@ -589,11 +589,11 @@ bPassPBB sq = foldl' (.|.) 0 $ takeWhile (/= 0) $ iterate (`shiftR` 8) bsqs
 
 instance EvalItem PassPawns where
     evalItem p c _ = passPawns p c
-    evalItemNDL _  = [("passPawnBonus", (9, (0, 200))),
-                      ("passPawn4", (41, (0, 250))),
-                      ("passPawn5", (83, (0, 300))),
-                      ("passPawn6", (167, (0, 400))),
-                      ("passPawn7", (335, (0, 500))) ]
+    evalItemNDL _  = [("passPawnBonus", (10, (0, 100))),
+                      ("passPawn4", (55, (0, 200))),
+                      ("passPawn5", (95, (0, 300))),
+                      ("passPawn6", (162, (0, 400))),
+                      ("passPawn7", (374, (0, 500))) ]
 
 passPawns :: MyPos -> Color -> IParams
 passPawns p _ = [dfp, dfp4, dfp5, dfp6, dfp7]
