@@ -227,25 +227,27 @@ doGo cmds = do
             then ctxLog "Info" "Just ponder: ignored"
             else do
                 md <- getIParamDef "maxDepth" 20
-                let (tpm, tmx) = compTime cmds lastsc $ myColor chg
+                let (tim, tpm, mtg) = getTimeParams cmds lastsc $ myColor chg
                     dpt = fromMaybe md (findDepth cmds)
                     lastsc = case forGui chg of
                                  Just InfoB { infoScore = sc } -> sc
                                  _ -> 0
-                startWorking tpm tmx dpt
+                startWorking tim tpm mtg dpt
 
-compTime cs lastsc c
+getTimeParams cs lastsc c
     = if tpm == 0 && tim == 0
-         then (0, 0)
-         else (ctm, tmx)
+         then (0, 0, 0)
+         else (tim, tpm, mtg)
     where tpm = fromMaybe 0 $ findTInc c cs
           tim = fromMaybe 0 $ findTime c cs
-          -- ctm = max 1 (tpm + tim `div` mtg) `div` 2   -- take the half to be sure
-          ctn = tpm + tim `div` mtg
+          mtg = fromMaybe 0 $ findMovesToGo cs
+
+compTime tim tpm fixmtg lastsc
+    = if tpm == 0 && tim == 0 then 0 else ctm
+    where ctn = tpm + tim `div` mtg
           ctm = if tim > 0 && tim < 8000 || tim == 0 && tpm < 1500 then 200 else ctn
-          -- mtg = fromMaybe 60 $ findMovesToGo cs
-          mtg = fromMaybe (estimateMovesToGo lastsc) $ findMovesToGo cs
-          tmx = (if tim == 0 then tpm else tim) - 200
+          mtg = if fixmtg > 0 then fixmtg else estimateMovesToGo lastsc
+          -- tmx = (if tim == 0 then tpm else tim) - 200
 
 estMvsToGo :: Array Int Int
 estMvsToGo = listArray (0, 8) [30, 28, 24, 18, 12, 10, 8, 6, 2]
@@ -261,35 +263,27 @@ newThread a = do
     ctx <- ask
     liftIO $ forkIO $ runReaderT a ctx
 
-startWorking :: Int -> Int -> Int -> CtxIO ()
-startWorking ms mx dp = do
+startWorking :: Int -> Int -> Int -> Int -> CtxIO ()
+startWorking tim tpm mtg dpt = do
     currms <- currMilli
     ctxLog "Info" $ "Start at " ++ show currms
-        ++ " to search for " ++ show ms
-        ++ " ms and maximal " ++ show dp ++ " plys"
+        ++ " to search: " ++ show tim ++ " / " ++ show tpm ++ " / " ++ show mtg
+        ++ " - maximal " ++ show dpt ++ " plys"
     modifyChanging $ \c -> c { working = True, srchStrtMs = currms }
     ctx <- ask
-    tid <- newThread (startSearchThread ms mx dp)
+    tid <- newThread (startSearchThread tim tpm mtg dpt)
     modifyChanging (\c -> c { compThread = Just tid })
     return ()
 
-startSearchThread :: Int -> Int -> Int -> CtxIO ()
-startSearchThread ms mx dp = do
-    tid <- liftIO myThreadId
-    -- ctxLog "Info" $ "Start at " ++ show currms
-    --     ++ " to search for " ++ show ms
-    --     ++ " ms and maximal " ++ show dp ++ " plys"
-    let killcond = killingThread && mx > 0
-    -- tis <- if killcond then newThread (internalStop $ killingStop * ms) else return tid
-    tis <- if killcond then newThread (internalStop mx) else return tid
+startSearchThread :: Int -> Int -> Int -> Int -> CtxIO ()
+startSearchThread tim tpm mtg dpt = do
     fd <- getIParamDef "firstDepth" 1
-    ctxCatch (searchTheTree fd dp ms Nothing [] [])
+    ctxCatch (searchTheTree fd dpt tim tpm mtg Nothing [] [])
         $ \e -> do
             let mes = "searchTheTree terminated by exception: " ++ show e
             ctxLog "Error" mes
             answer $ infos mes
             liftIO $ threadDelay $ 50*1000 -- give time to send the ans
-    -- when killcond $ liftIO $ killThread tis -- kill the killer
 
 -- ctxCatch :: CE.Exception e => CtxIO a -> (e -> CtxIO a) -> CtxIO a
 ctxCatch :: CtxIO a -> (CE.SomeException -> CtxIO a) -> CtxIO a
@@ -307,15 +301,16 @@ internalStop ms = do
     doStop False
 
 -- Search with the given depth
-searchTheTree :: Int -> Int -> Int -> Maybe Int -> [Move] -> [Move] -> CtxIO ()
-searchTheTree tief mtief ms lsc lpv rmvs = do
+searchTheTree :: Int -> Int -> Int -> Int -> Int -> Maybe Int -> [Move] -> [Move] -> CtxIO ()
+searchTheTree tief mtief tim tpm mtg lsc lpv rmvs = do
     chg <- readChanging
     (path, sc, rmvsf, stfin) <- bestMoveCont tief (crtStatus chg) lsc lpv rmvs
     case length path of _ -> return () -- because of lazyness!
     storeBestMove path sc	-- write back in status
     modifyChanging (\c -> c { crtStatus = stfin })
     currms <- currMilli
-    let strtms = srchStrtMs chg
+    let ms = compTime tim tpm mtg sc
+        strtms = srchStrtMs chg
         delta = strtms + ms - currms
         ms2 = ms `div` 2
         onlyone = ms > 0 && length rmvsf == 1 && tief >= 4	-- only in normal play
@@ -337,7 +332,7 @@ searchTheTree tief mtief ms lsc lpv rmvs = do
         else do
             chg <- readChanging
             if working chg
-                then searchTheTree (tief + 1) mtief ms (Just sc) path rmvsf
+                then searchTheTree (tief + 1) mtief tim tpm mtg (Just sc) path rmvsf
                 else do
                     ctxLog "Info" "in searchTheTree: not working"
                     giveBestMove path -- was stopped
@@ -396,7 +391,7 @@ answer s = do
 
 -- Version and suffix:
 progVersion = "0.59"
-progVerSuff = " evo"
+progVerSuff = ""
 
 -- These are the possible answers from engine to GUI:
 idName = "id name AbaAba " ++ progVersion ++ progVerSuff
