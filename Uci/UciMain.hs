@@ -300,6 +300,8 @@ internalStop ms = do
     ctxLog "Debug" "Internal stop clock ended"
     doStop False
 
+betterSc = 25
+
 -- Search with the given depth
 searchTheTree :: Int -> Int -> Int -> Int -> Int -> Maybe Int -> [Move] -> [Move] -> CtxIO ()
 searchTheTree tief mtief tim tpm mtg lsc lpv rmvs = do
@@ -309,7 +311,12 @@ searchTheTree tief mtief tim tpm mtg lsc lpv rmvs = do
     storeBestMove path sc	-- write back in status
     modifyChanging (\c -> c { crtStatus = stfin })
     currms <- currMilli
-    let ms = compTime tim tpm mtg sc
+    let ms' = compTime tim tpm mtg sc
+        ms  = if sc > betterSc
+                 then ms' * 4 `div` 5
+                 else if sc < -betterSc
+                      then ms' * 6 `div` 5
+                      else ms'
         strtms = srchStrtMs chg
         delta = strtms + ms - currms
         ms2 = ms `div` 2
@@ -391,7 +398,7 @@ answer s = do
 
 -- Version and suffix:
 progVersion = "0.59"
-progVerSuff = " tra"
+progVerSuff = ""
 
 -- These are the possible answers from engine to GUI:
 idName = "id name AbaAba " ++ progVersion ++ progVerSuff
