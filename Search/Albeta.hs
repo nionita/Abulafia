@@ -39,8 +39,8 @@ aspTries = 3
 
 -- Some fix search parameter
 depthForCM  = 7 -- from this depth inform current move
-minToStore  = 1 -- minimum remaining depth to store the position in hash
-minToRetr   = 1 -- minimum remaining depth to retrieve
+minToStore  = 2 -- minimum remaining depth to store the position in hash
+minToRetr   = 2 -- minimum remaining depth to retrieve
 maxDepthExt = 3 -- maximum depth extension
 useNegHist  = False	-- when not cutting - negative history
 negHistMNo  = 1		-- how many moves get negative history
@@ -456,12 +456,13 @@ checkFailOrPVRoot xstats b d e s nst = do
         pvb    = Pvsl s nodes False	-- the bad
         xpvslg = insertToPvs d pvg (pvsl nst)	-- the good
         xpvslb = insertToPvs d pvb (pvsl nst)	-- the bad
+        de = pathDepth s
     -- logmes $ "*** to pvsl: " ++ show xpvsl
     inschool <- gets $ school . ronly
     if d == 1	-- for depth 1 search we search all exact
        then do
             let typ = 2
-            when (d >= minToStore) $ lift $ store d typ (pathScore s) e nodes
+            when (de >= minToStore) $ lift $ store de typ (pathScore s) e nodes
             -- when inschool $ do
             --     s0 <- pvQSearch a b 0
             --     lift $ learn d typ s s0
@@ -473,7 +474,7 @@ checkFailOrPVRoot xstats b d e s nst = do
        else if s >= b
                then do	-- what when a root move fails high? We are in aspiration
                     let typ = 1	-- best move is e and is beta cut (score is lower limit)
-                    when (d >= minToStore) $ lift $ store d typ (pathScore s) e nodes
+                    when (de >= minToStore) $ lift $ store de typ (pathScore s) e nodes
                     -- when inschool $ do
                     --     s0 <- pvQSearch a b 0
                     --     lift $ learn d typ b s0
@@ -491,7 +492,7 @@ checkFailOrPVRoot xstats b d e s nst = do
                          -- lift $ informStr $ "Next info: " ++ pathOrig s
                          informBest (pathScore s) (draft sst) (unseq $ pathMoves s)
                          let typ = 2	-- best move so far (score is exact)
-                         when (d >= minToStore) $ lift $ store d typ (pathScore s) e nodes
+                         when (de >= minToStore) $ lift $ store de typ (pathScore s) e nodes
                          -- when inschool $ do
                          --     s0 <- pvQSearch a b 0
                          --     lift $ learn d typ s s0
@@ -584,11 +585,12 @@ pvSearch nst !a !b d lastpath lastnull = do
                               --     s0 <- pvQSearch a b 0
                               --     lift $ learn d typ s s0
                               let s = cursc nstf
-                              when (d >= minToStore) $ do
+                                  de = pathDepth s
+                              when (de >= minToStore) $ do
                                   let typ = 0
                                       !deltan = nodes1 - nodes0
                                   -- store as upper score - move does not matter - tricky here!
-                                  lift $ store d typ (pathScore s) (head $ unalt edges) deltan
+                                  lift $ store de typ (pathScore s) (head $ unalt edges) deltan
                               return $ onlyScore s
                           -- else modify $ \st -> st { killer = pushKiller (head p) s kill }
                           else return (cursc nstf)	-- modify $ \st -> st { killer = kill1 }
@@ -726,12 +728,13 @@ checkFailOrPVLoop xstats b d e s nst = do
         !nodes0 = sNodes xstats
         !nodes1 = sNodes $ stats sst
         !nodes  = nodes1 - nodes0
+        de = pathDepth s
     inschool <- gets $ school . ronly
     -- checkMe a "checkFailOrPVLoop 3"
     if s >= b
        then do
             let typ = 1	-- best move is e and is beta cut (score is lower limit)
-            when (d >= minToStore) $ lift $ store d typ (pathScore s) e nodes
+            when (de >= minToStore) $ lift $ store de typ (pathScore s) e nodes
             lift $ betaMove True d (absdp sst) e -- anounce a beta move (for example, update history)
             -- when inschool $ do
             --     s0 <- pvQSearch a b 0
@@ -746,7 +749,7 @@ checkFailOrPVLoop xstats b d e s nst = do
        else if s > a
           then do
               let typ = 2	-- score is exact
-              when (ownnt nst == PVNode || d >= minToStore) $ lift $ store d typ (pathScore s) e nodes
+              when (ownnt nst == PVNode || de >= minToStore) $ lift $ store de typ (pathScore s) e nodes
               -- when debug $ logmes $ "<-- pvInner - new a: " ++ show s
               -- when inschool $ do
               --     s0 <- pvQSearch a b 0

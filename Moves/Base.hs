@@ -87,7 +87,7 @@ instance CtxMon m => Node (Game m) Move Int where
 
 -- Some options and parameters:
 debug       = False
-useHash     = False
+useHash     = True
 learnEval   = False
 depthForMovesSortPv = 1	-- use history for sorting moves when pv or cut nodes
 depthForMovesSort   = 1	-- use history for sorting moves
