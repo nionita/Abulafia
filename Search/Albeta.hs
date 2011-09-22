@@ -993,14 +993,10 @@ pushKiller !e s NoKiller = OneKiller e s
 pushKiller !e s ok@(OneKiller e1 s1)
     = if e == e1
          then ok
-         else if s > s1
-                 then TwoKillers e s e1 s1
-                 else TwoKillers e1 s1 e s
+         else TwoKillers e s e1 s1
 pushKiller !e s tk@(TwoKillers e1 s1 e2 s2)
     | e == e1 || e == e2 = tk
-    | s > s1             = TwoKillers e s e1 s1
-    | s > s2             = TwoKillers e1 s1 e s
-    | otherwise          = tk
+    | otherwise          = TwoKillers e s e1 s1
 
 killerToList :: (Show e, Show s) => Killer e s -> [e]
 killerToList NoKiller = []
