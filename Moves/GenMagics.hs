@@ -8,6 +8,7 @@ module Moves.GenMagics (
 import Data.Array.Unboxed
 import Data.Bits
 import Data.List
+import qualified Data.Set as S
 import Data.Word
 
 import Struct.Struct
@@ -69,7 +70,7 @@ movKings = array (0, 63) $ genArray 0x0000000000070507 9
 
 -- Generate the list of bishop moves by occupancy for one square
 genBishop :: Square -> [(Int, BBoard)]
-genBishop sq = nub $ zip has rez
+genBishop sq = S.elems . S.fromList $ zip has rez
     where inpr = genInpRez False sq
           inps = map fst inpr
           rez = map snd inpr 
@@ -77,7 +78,7 @@ genBishop sq = nub $ zip has rez
 
 -- Generate the list of rook moves by occupancy for one square
 genRook :: Square -> [(Int, BBoard)]
-genRook sq = nub $ zip has rez
+genRook sq = S.elems . S.fromList $ zip has rez
     where inpr = genInpRez True sq
           inps = map fst inpr
           rez = map snd inpr 

@@ -65,7 +65,8 @@ bestMoveCont tiefe stati lastsc lpv rmvs = do
                 lastscore = lastsc,
                 rootmvs   = rmvs,
                 window    = aspirWindow,
-                learnev   = False
+                learnev   = False,
+                best      = True
                 }
     ((sc, path, rmvsf), statf) <- runSearch (alphaBeta abc) stati
     when (sc == 0) $ return ()

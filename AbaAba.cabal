@@ -53,11 +53,14 @@ Executable PlotEvolve
 Executable FixPlayFen
   Main-is:	Main\MainFixPlayFen.hs
   Build-depends:	base >= 4, array, mtl, parsec
-
-Executable BenchFixPlayFen
-  Main-is:	Tests\TestFixPlayFen.hs
-  Build-depends:	base >= 4, array, mtl, parsec, criterion
   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4 -funfolding-use-threshold=32
+  if flag(profile)
+    GHC-Options: -auto-all
+
+-- Executable BenchFixPlayFen
+--   Main-is:	Tests\TestFixPlayFen.hs
+--   Build-depends:	base >= 4, array, mtl, parsec, criterion
+--   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4 -funfolding-use-threshold=32
 
 Executable Evolve
   Main-is:	Main\MainEvolve.hs
@@ -73,6 +76,7 @@ Executable AbaAba
 
   if flag(profile)
     C-sources: Cbits\rts_hooksp.c
+    GHC-Options: -auto-all
     -- GHC-Options: -auto-all -with-rtsopts="-p -hc -smemop.txt"
   else
     C-sources: Cbits\rts_hooks.c

@@ -9,7 +9,7 @@ module Search.SearchMonad (
     ) where
 
 import Control.Monad
-import Control.Monad.State hiding (lift, gets)
+import Control.Monad.State hiding (lift, gets, modify)
 -- import Control.Monad.Cont
 
 newtype STPlus s m a = STPlus { runSTPlus :: s -> m (a, s) }
@@ -18,13 +18,15 @@ newtype STPlus s m a = STPlus { runSTPlus :: s -> m (a, s) }
 instance Monad m => Monad (STPlus s m) where
     {-# INLINE return #-}
     return v = STPlus (\s -> return (v, s))
+    {-# INLINE (>>=) #-}
     (>>=)    = bindSTPlus
 
 {-# INLINE bindSTPlus #-}
 bindSTPlus :: Monad m => STPlus s m a -> (a -> STPlus s m b) -> STPlus s m b
 -- bindSTPlus ms f = STPlus $ \s -> runSTPlus ms s >>= \(v', s') -> runSTPlus (f v') s'
 bindSTPlus ms f = STPlus $ \s -> case runSTPlus ms s of
-                                     m -> m >>= \(v', s') -> runSTPlus (f v') s'
+                                     m -> m >>= \(v', s') -> case f v' of
+                                                                fv -> runSTPlus fv s'
 
 instance Monad m => MonadState s (STPlus s m) where
     {-# INLINE get #-}
@@ -49,6 +51,10 @@ lift m = STPlus $ \s -> m >>= \v -> return (v, s)
 gets :: Monad m => (s -> a) -> STPlus s m a
 -- gets f = STPlus $ \s -> return (f s, s)
 gets f = STPlus $ \s -> case f s of fs -> return (fs, s)
+
+{-# INLINE modify #-}
+modify :: Monad m => (s -> s) -> STPlus s m ()
+modify f = STPlus $ \s -> case f s of fs -> return ((), fs)
 
 {--
 newtype CPST m s a = CPST

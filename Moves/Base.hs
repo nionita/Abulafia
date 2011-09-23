@@ -404,8 +404,9 @@ showChoose pvs = do
 --}
 
 -- Choose between almost equal (root) moves
-choose0 :: CtxMon m => [(Int, [Move])] -> Game m (Int, [Move])
-choose0 pvs = case pvs of
+choose0 :: CtxMon m => Bool -> [(Int, [Move])] -> Game m (Int, [Move])
+choose0 True pvs = return $ head pvs
+choose0 _    pvs = case pvs of
     p1 : [] -> return p1
     p1 : ps -> do
          let equal = p1 : takeWhile inrange ps

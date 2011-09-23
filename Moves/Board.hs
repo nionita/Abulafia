@@ -474,8 +474,8 @@ sortByMVVLVA p = map snd . sortBy (comparing fst) . map va
                        = ((- matPiece White f2, matPiece White f1), ft)
 
 -- {-# INLINE updatePos #-}
-updatePos :: Bool -> MyPos -> MyPos
-updatePos recalc = updatePosCheck recalc . updatePosAttacs . updatePosOccup
+updatePos :: MyPos -> MyPos
+updatePos = updatePosCheck . updatePosAttacs . updatePosOccup
 
 updatePosOccup :: MyPos -> MyPos
 updatePosOccup p = p {
@@ -518,13 +518,12 @@ updatePosAttacs p = p {
           !tblAttacs = tblPAtt .|. tblNAtt .|. tblBAtt .|. tblRAtt .|. tblQAtt .|. tblKAtt
 
 updatePosCheck :: Bool -> MyPos -> MyPos
-updatePosCheck recalc p = p {
+updatePosCheck p = p {
                   check = tcheck
                   -- pinned = calcPinned p wpind bpind,
                   -- wpindirs = wpind, bpindirs = bpind
                }
-    where -- (wpind, bpind) = if recalc then allPLKAs p else (wpindirs p, bpindirs p)
-          !whcheck = white p .&. kings p .&. blAttacs p
+    where !whcheck = white p .&. kings p .&. blAttacs p
           !blcheck = black p .&. kings p .&. whAttacs p
           !tcheck = blcheck .|. whcheck
 
@@ -658,7 +657,8 @@ canMove fig p src dst = fAttacs src fig (occup p) `testBit` dst
 -- doFromToMove :: Square -> Square -> MyPos -> Maybe MyPos
 -- {-# INLINE doFromToMove #-}
 doFromToMove :: Move -> MyPos -> MyPos
-doFromToMove m p | moveIsNormal m = updatePos (changePining p src dst) p {
+-- doFromToMove m p | moveIsNormal m = updatePos (changePining p src dst) p {
+doFromToMove m p | moveIsNormal m = updatePos p {
                                         basicPos = nbp, zobkey = tzobkey, mater = tmater
                                     }
     where nbp = BPos {
@@ -694,7 +694,8 @@ doFromToMove m p | moveIsNormal m = updatePos (changePining p src dst) p {
                                  ++ showTab (black p) (slide p) (kkrq p) (diag p)
                                  ++ "resulting pos:\n"
                                  ++ showTab tblack tslide tkkrq tdiag
-doFromToMove m p | moveIsEnPas m = updatePos False p {
+-- doFromToMove m p | moveIsEnPas m = updatePos False p {
+doFromToMove m p | moveIsEnPas m = updatePos p {
                                        basicPos = nbp, zobkey = tzobkey, mater = tmater
                                    }
     where nbp = BPos {
@@ -720,7 +721,8 @@ doFromToMove m p | moveIsEnPas m = updatePos False p {
                               accumSetPiece dst col fig p,
                               accumMoving p
                           ]
-doFromToMove m p | moveIsTransf m = updatePos True p0 {
+-- doFromToMove m p | moveIsTransf m = updatePos True p0 {
+doFromToMove m p | moveIsTransf m = updatePos p0 {
                                         basicPos = nbp, zobkey = tzobkey, mater = tmater
                                     }
     where nbp = BPos {
@@ -745,7 +747,8 @@ doFromToMove m p | moveIsTransf m = updatePos True p0 {
                               accumSetPiece dst col pie p0,	--- Hier: is this ok???
                               accumMoving p
                           ]
-doFromToMove m p | moveIsCastle m = updatePos True p {
+-- doFromToMove m p | moveIsCastle m = updatePos True p {
+doFromToMove m p | moveIsCastle m = updatePos p {
                                         basicPos = nbp, zobkey = tzobkey, mater = tmater
                                     }
     where nbp = BPos {

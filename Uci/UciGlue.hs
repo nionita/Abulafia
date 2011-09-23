@@ -33,7 +33,8 @@ bestMoveCont tiefe stati lastsc lpv rmvs = do
                 lastscore = lastsc,
                 rootmvs   = rmvs,
                 window    = aspirWindow,
-                learnev   = learnEval
+                learnev   = learnEval,
+                best      = False
                 }
     -- ((sc, path, rmvsf), statf) <- runStateT (alphaBeta abc) stati
     ((sc, path, rmvsf), statf) <- SM.runSearch (alphaBeta abc) stati
