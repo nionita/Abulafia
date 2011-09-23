@@ -13,7 +13,7 @@ import Moves.Board
 
 main = do
     args <- getArgs
-    let p = updatePos True initPos
+    let p = updatePos initPos
         n = case args of
                 (n1:_) -> read n1
                 _      -> 3

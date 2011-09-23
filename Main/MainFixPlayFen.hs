@@ -34,7 +34,7 @@ main = do
        else do
            let depth = read $ head args
                fen   = unwords $ tail args
-               pos = updatePos True $ posFromFen fen
+               pos = updatePos $ posFromFen fen
            putStrLn $ "Analise depth " ++ show depth ++ " fen " ++ fen
            ha  <- newCache defaultConfig
            hi  <- newHist

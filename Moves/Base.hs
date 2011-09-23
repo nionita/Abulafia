@@ -108,7 +108,7 @@ getPos = gets (head . stack)
 
 posToState :: MyPos -> Cache -> History -> EvalState -> MyState
 posToState p c h e = MyState {
-                       stack = [updatePos True p],
+                       stack = [updatePos p],
                        hash = c,
                        hist = h,
                        stats = stats0,

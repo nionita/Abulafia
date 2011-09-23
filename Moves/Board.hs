@@ -517,7 +517,7 @@ updatePosAttacs p = p {
           !twhAttacs = twhPAtt .|. twhNAtt .|. twhBAtt .|. twhRAtt .|. twhQAtt .|. twhKAtt
           !tblAttacs = tblPAtt .|. tblNAtt .|. tblBAtt .|. tblRAtt .|. tblQAtt .|. tblKAtt
 
-updatePosCheck :: Bool -> MyPos -> MyPos
+updatePosCheck :: MyPos -> MyPos
 updatePosCheck p = p {
                   check = tcheck
                   -- pinned = calcPinned p wpind bpind,
