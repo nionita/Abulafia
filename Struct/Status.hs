@@ -8,7 +8,6 @@ import Data.Array.Unboxed
 
 import Struct.Struct
 import Moves.History
--- import Hash.WinCache
 import Hash.SimpleCache
 
 data Stats = Stats {

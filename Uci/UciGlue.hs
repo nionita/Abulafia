@@ -7,6 +7,7 @@ import Data.Array.IArray
 import Control.Monad.State.Lazy
 
 import qualified Search.SearchMonad as SM
+import Search.AlbetaTypes
 import Search.Albeta
 import Struct.Struct
 import Struct.Status

@@ -28,6 +28,8 @@ import Data.Ord (comparing)
 import Data.Array.IO
 import System.Random
 
+import Moves.BaseTypes
+import Search.AlbetaTypes
 import qualified Search.SearchMonad as SM
 import Search.Albeta
 import Struct.Struct
@@ -53,12 +55,6 @@ instance Score Int where
 instance Edge Move where
     {-# INLINE special #-}
     special = moveIsSpecial
-
--- This is a specialized monad transformer for state
-type Game m = SM.STPlus MyState m
-
-class (Monad m, MonadIO m) => CtxMon m where
-    tellCtx :: Comm Move Int -> m ()
 
 instance CtxMon m => Node (Game m) Move Int where
     staticVal = staticVal0

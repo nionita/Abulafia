@@ -17,6 +17,7 @@ import Moves.Base
 import Moves.History
 import Eval.Eval
 import Hash.SimpleCache
+import Search.AlbetaTypes
 import Search.Albeta
 import Search.SearchMonad
 import Config.ConfigClass

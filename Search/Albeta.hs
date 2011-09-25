@@ -4,12 +4,6 @@
 {-# LANGUAGE BangPatterns #-}
 
 module Search.Albeta (
-    Node(..),
-    Edge(..),
-    Score(..),
-    DoResult(..),
-    Comm(..),
-    ABControl(..),
     alphaBeta, logmes
 ) where
 
@@ -20,6 +14,10 @@ import Data.Array.Base
 import Data.Array.Unboxed
 
 import Search.SearchMonad
+import Search.AlbetaTypes
+import Struct.Struct
+import Struct.Status hiding (stats)
+import Moves.BaseTypes
 
 debug = False
 
@@ -71,6 +69,7 @@ logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
 -- Parameters for futility pruning:
 futilActive = True
 maxFutilDepth = 3
+{-# SPECIALIZE futilMargins :: Score Int => Array Int Int #-}
 futilMargins :: Score s => Array Int s
 -- futilMargins = array (1, 3) [ (1, 400), (2, 650), (3, 1200) ]
 futilMargins = array (1, 3) [ (1, 500), (2, 750), (3, 1200) ]
@@ -85,69 +84,28 @@ qsMaxChess = 2		-- max number of chess for a quiet search path
 nulActivate = True		-- activate null move reduction
 nulRedux    = 3 -- depth reduction for null move
 nulMoves    = 2	-- how many null moves in sequence are allowed (one or two)
+{-# SPECIALIZE nulMargin :: Score Int => Int #-}
+{-# SPECIALIZE nulSubmrg :: Score Int => Int #-}
 nulMargin, nulSubmrg :: Score s => s
 nulMargin   = 1	-- 120		-- margin to search the null move (over beta)
 nulSubmrg   = 10	-- improved margin
 nulSubAct   = True
 
 -- Parameter for quiescenst search
+{-# SPECIALIZE inEndlessCheck :: Score Int => Int #-}
+{-# SPECIALIZE qsDelta        :: Score Int => Int #-}
 inEndlessCheck, qsDelta :: Score s => s
 inEndlessCheck = -1	-- there is a risk to be left in check
 qsDelta     = 1100
 
-class (Ord s, Num s, Bounded s) => Score s where
-    nextlev  :: s -> s
-    nearmate :: s -> Bool
-
-class Edge e where
-    special :: e -> Bool
-
-data ABControl e s = ABC {
-        maxdepth :: !Int,
-        lastpv :: [e],
-        lastscore :: Maybe s,
-        rootmvs :: [e],
-        window :: s,
-        learnev :: Bool,
-        best :: Bool
-    } deriving Show
-
--- The node class, dependent on a game monad m, an edge type e (moves)
--- and a score type s
-class (Monad m, Eq e, Show e, Edge e, Score s, Show s) =>
-  Node m e s | m -> e, m -> s, s -> m where
-    staticVal :: m s  -- static evaluation of a node
-    materVal  :: m s  -- material evaluation (for prune purpose)
-    genEdges :: Int -> Int -> Bool -> m ([e], [e])  -- generate all legal edges
-    genTactEdges :: m [e]  -- generate all edges in tactical positions
-    legalEdge :: e -> m Bool	-- is the move legal?
-    killCandEdge :: e -> e -> m Bool	-- is the move killer candidate?
-    inSeq :: e -> e -> m Bool	-- can 2 moves be in sequence?
-    tactical :: m Bool -- if a position is tactical, search further
-    doEdge   :: e -> Bool -> m (DoResult s)
-    undoEdge :: e -> m ()
-    betaMove :: Bool -> Int -> Int -> e -> m ()   -- called for beta-cut moves
-    nullEdge :: m ()		   -- do null move (and also undo)
-    retrieve :: m (Int, Int, s, e, Int)   -- retrieve the position in hash
-    store :: Int -> Int -> s -> e -> Int -> m () -- store the position in hash
-    learn :: Int -> Int -> s -> s -> m ()	-- learn the evaluation parameters
-    curNodes :: m Int
-    inform :: Comm e s -> m ()		-- communicate to the world (log, current and best move)
-    choose :: Bool -> [(s, [e])] -> m (s, [e])
-
 type Search m e s = STPlus (PVState e s) m
 
-alpha0, beta0 :: Node m e s => s
+-- alpha0, beta0 :: Node m e s => s
+{-# SPECIALIZE alpha0 :: Score Int => Int #-}
+{-# SPECIALIZE beta0  :: Score Int => Int #-}
+alpha0, beta0 :: Score s => s
 alpha0 = minBound + 2000
 beta0  = maxBound - 2000
-
-data DoResult s = Exten !Int	-- return mit extension (evtl 0)
-                | Final !s	-- return with a final score (probably draw)
-
-data Comm e s = LogMes String
-              | BestMv s Int Int [e]
-              | CurrMv e Int
-              | InfoStr String
 
 data Pvsl e s = Pvsl {
         pvPath :: Path e s,	-- pv path
@@ -281,6 +239,7 @@ stt0 = SStats { sNodes = 0, sNodesQS = 0, sCuts = 0, sCutMovNo = 0, sRese = 0,
                 sNulWind = 0, sRetr = 0, sRSuc = 0 }
 pvro00 = PVReadOnly { school = False, albest = False }
 
+{-# SPECIALIZE alphaBeta :: Node (Game m) Move Int => ABControl Move Int -> Game m (Int, [Move], [Move]) #-}
 alphaBeta :: Node m e s => ABControl e s -> m (s, [e], [e])
 alphaBeta abc = do
     let !d = maxdepth abc
@@ -310,6 +269,7 @@ alphaBeta abc = do
          else liftM fst $ runSearch searchFull pvs0
     return $! case r of (s, Seq path, Alt rmvs) -> (s, path, rmvs)
 
+{-# SPECIALIZE aspirWin :: Node (Game m) Move Int => Int -> Int -> Int -> Seq Move -> Alt Move -> Int -> Game m (Int, Seq Move, Alt Move) #-}
 aspirWin :: Node m e s => s -> s -> Int -> Seq e -> Alt e -> Int -> m (s, Seq e, Alt e)
 aspirWin _ _ d lpv rmvs 0 = liftM fst $ runSearch (pvRootSearch alpha0 beta0 d lpv rmvs True) pvsInit
 aspirWin a b d lpv rmvs t = do
@@ -324,6 +284,9 @@ aspirWin a b d lpv rmvs t = do
     where incr = aspIncr!t
 
 -- Root PV Search
+{-# SPECIALIZE pvRootSearch :: Node (Game m) Move Int
+             => Int -> Int -> Int -> Seq Move -> Alt Move -> Bool
+             -> Search (Game m) Move Int (Int, Seq Move, Alt Move) #-}
 pvRootSearch :: Node m e s => s -> s -> Int -> Seq e -> Alt e -> Bool
              -> Search m e s (s, Seq e, Alt e)
 pvRootSearch a b d _ _ _ | d <= 0 = do	-- this part is only for eval learning
@@ -369,7 +332,12 @@ pvRootSearch a b d lastpath rmvs aspir = do
 -- This is the inner loop of the PV search of the root, executed at root once per possible move
 -- See the parameter
 -- Returns: ...flag if it was a beta cut and new status
--- {-# SPECIALIZE pvInnerRoot :: Node m e Int => Path e s -> Int -> NodeState e s -> e -> Search m e Int (Bool, NodeState e s) #-}
+{-# SPECIALIZE pvInnerRoot :: Node (Game m) Move Int
+            => Path Move Int	-- current beta
+            -> Int	-- current search depth
+            -> NodeState Move Int	-- node status
+            -> Move	-- move to search
+            -> Search (Game m) Move Int (Bool, NodeState Move Int) #-}
 pvInnerRoot :: Node m e s
             => Path e s	-- current beta
             -> Int	-- current search depth
@@ -402,7 +370,9 @@ pvInnerRoot b d nst e = do
     --                                 ++ " /// " ++ show (pathScore s') ++ ")"
     checkFailOrPVRoot (stats old) b d e s' nst
 
--- {-# SPECIALIZE pvInnerRootExten :: Node m e Int => Int -> Int -> Bool -> Int -> [e] -> Search m e Int (Int, [e]) #-}
+{-# SPECIALIZE pvInnerRootExten :: Node (Game m) Move Int
+                 => Path Move Int -> Int -> Bool -> Int -> NodeState Move Int
+                 -> Search (Game m) Move Int (Path Move Int) #-}
 pvInnerRootExten :: Node m e s => Path e s -> Int -> Bool -> Int -> NodeState e s -> Search m e s (Path e s)
 pvInnerRootExten b d spec exd nst = do
     -- pindent $ "depth = " ++ show d
@@ -440,8 +410,9 @@ pvInnerRootExten b d spec exd nst = do
           a = cursc nst
           okToReduce t = lmrActive && not (inPv || spec || exd > 0 || d < lmrMinDRed) && not t
 
--- {-# SPECIALIZE checkFailOrPVRoot :: Node m e Int => PVState e Int -> Int -> Int -> Int -> e -> Int -> [e]
---                   -> Search m e Int (Bool, [e]) #-}
+{-# SPECIALIZE checkFailOrPVRoot :: Node (Game m) Move Int
+                  => SStats -> Path Move Int -> Int -> Move -> Path Move Int
+                  -> NodeState Move Int -> Search (Game m) Move Int (Bool, NodeState Move Int) #-}
 checkFailOrPVRoot :: Node m e s => SStats -> Path e s -> Int -> e -> Path e s
                   -> NodeState e s -> Search m e s (Bool, NodeState e s)
 checkFailOrPVRoot xstats b d e s nst = do
@@ -456,8 +427,8 @@ checkFailOrPVRoot xstats b d e s nst = do
         !nodes  = nodes1 - nodes0
         pvg    = Pvsl s nodes True	-- the good
         pvb    = Pvsl s nodes False	-- the bad
-        xpvslg = insertToPvs d pvg (pvsl nst)	-- the good
-        xpvslb = insertToPvs d pvb (pvsl nst)	-- the bad
+        -- xpvslg = insertToPvs d pvg (pvsl nst)	-- the good
+        -- xpvslb = insertToPvs d pvb (pvsl nst)	-- the bad
         de = pathDepth s
     -- logmes $ "*** to pvsl: " ++ show xpvsl
     inschool <- gets $ school . ronly
@@ -472,6 +443,7 @@ checkFailOrPVRoot xstats b d e s nst = do
                           then nst { cursc = s, ownnt = nextNodeType (ownnt nst),
                                      forpv = False, weak = False }
                           else nst
+            xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
             return (False, nst1 {movno = mn + 1, pvsl = xpvslg, pvcont = Seq []})
        else if s >= b
                then do	-- what when a root move fails high? We are in aspiration
@@ -485,6 +457,7 @@ checkFailOrPVRoot xstats b d e s nst = do
                     -- let nst1 = nst { cursc = combinePath s b, weak = False,
                     -- let nst1 = nst { cursc = csc, weak = False, pvsl = xpvslg, pvcont = Seq [] }
                     --    !csc = if s > b then combinePath s b else s
+                    xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
                     let nst1 = nst { cursc = s, weak = False, pvsl = xpvslg, pvcont = Seq [] }
                     -- lift $ logmes $ "Root move " ++ show e ++ " failed high: " ++ show s
                     -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
@@ -498,6 +471,7 @@ checkFailOrPVRoot xstats b d e s nst = do
                          -- when inschool $ do
                          --     s0 <- pvQSearch a b 0
                          --     lift $ learn d typ s s0
+                         xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
                          let nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
                                           forpv = False, movno = mn + 1,
                                           weak = False, pvsl = xpvslg, pvcont = Seq [] }
@@ -521,23 +495,29 @@ checkFailOrPVRoot xstats b d e s nst = do
                                               if iskm then return $! pushKiller km s1 (killer nst)
                                                       else return $ killer nst
                                           else return $ killer nst
+                              xpvslb <- insertToPvs d pvb (pvsl nst)	-- the bad
                               let nst1 = nst { movno = mn + 1, pvsl = xpvslb,
                                                killer = kill1, pvcont = Seq [] }
                               return (False, nst1)
 
--- {-# SPECIALIZE insertToPvs :: Score Int => Int -> Pvsl e Int -> [Pvsl e Int] -> [Pvsl e Int] #-}
-insertToPvs :: (Show e, Edge e, Score s) => Int -> Pvsl e s -> [Pvsl e s] -> [Pvsl e s]
-insertToPvs _ p [] = [p]
+{-# SPECIALIZE insertToPvs :: Node (Game m) Move Int
+                           => Int -> Pvsl Move Int -> [Pvsl Move Int]
+                           -> Search (Game m) Move Int [Pvsl Move Int] #-}
+-- insertToPvs :: (Show e, Edge e, Score s) => Int -> Pvsl e s -> [Pvsl e s] -> [Pvsl e s]
+insertToPvs :: Node m e s => Int -> Pvsl e s -> [Pvsl e s] -> Search m e s [Pvsl e s]
+insertToPvs _ p [] = return [p]
 insertToPvs d p ps@(q:qs)
     -- | pvGood p && not (pvGood q) || betters || equals && bettern = p : ps
     -- | pvGood p && not (pvGood q) || bettern || equaln && betters = p : ps
-    | d == 1 && (betters || equals) = p : ps
-    | pmate && not qmate            = p : ps
-    | not pmate && qmate            = q : insertToPvs d p qs
-    | pmate && betters              = p : ps
-    | bettern || equaln && betters  = p : ps
+    | d == 1 && (betters || equals) = return $ p : ps
+    | pmate && not qmate            = return $ p : ps
+    | not pmate && qmate            = do ir <- insertToPvs d p qs
+                                         return $ q : ir
+    | pmate && betters              = return $ p : ps
+    | bettern || equaln && betters  = return $ p : ps
     -- | pvGood p && not (pvGood q) || betters = p : ps
-    | otherwise                    = q : insertToPvs d p qs
+    | otherwise                    = do ir <- insertToPvs d p qs
+                                        return $ q : ir
     where betters = pvPath p >  pvPath q
           equals  = pvPath p == pvPath q
           equaln  = pvNodes p == pvNodes q
@@ -546,8 +526,9 @@ insertToPvs d p ps@(q:qs)
           qmate   = nearmate $ pvPath q
 
 -- PV Search
--- {-# SPECIALIZE pvSearch :: Node m e Int => Int -> Int -> Int -> [e] -> Int
---                         -> Search m e Int (Int, [e]) #-}
+{-# SPECIALIZE pvSearch :: Node (Game m) Move Int
+                       => NodeState Move Int -> Path Move Int -> Path Move Int -> Int -> Seq Move -> Int
+                       -> Search (Game m) Move Int (Path Move Int) #-}
 pvSearch :: Node m e s => NodeState e s -> Path e s -> Path e s -> Int -> Seq e -> Int
                        -> Search m e s (Path e s)
 pvSearch _ a b !d _ _ | d <= 0 = do
@@ -602,7 +583,9 @@ pvSearch nst !a !b d lastpath lastnull = do
                   -- pindent $ "<= " ++ show s
                   return s
 
--- {-# SPECIALIZE nullEdgeFailsHigh :: Node m e Int => Int -> Int -> Int -> Int -> Search m e Int Bool #-}
+{-# SPECIALIZE nullEdgeFailsHigh :: Node (Game m) Move Int
+                                 => NodeState Move Int -> Path Move Int -> Int -> Int
+                                 -> Search (Game m) Move Int Bool #-}
 nullEdgeFailsHigh :: Node m e s => NodeState e s -> Path e s -> Int -> Int -> Search m e s Bool
 nullEdgeFailsHigh nst b d lastnull =
     if not nulActivate || lastnull < 1
@@ -625,7 +608,12 @@ nullEdgeFailsHigh nst b d lastnull =
 -- This is the inner loop of the PV search, executed at every level (except root) once per possible move
 -- See the parameter
 -- Returns: flag if it was a beta cut and new status
--- {-# SPECIALIZE pvInnerLoop :: Node m e Int => Int -> Int -> [e] -> e -> Search m e Int (Bool, [e]) #-}
+{-# SPECIALIZE pvInnerLoop :: Node (Game m) Move Int
+            => Path Move Int	-- current beta
+            -> Int	-- current search depth
+            -> NodeState Move Int	-- node status
+            -> Move	-- move to search
+            -> Search (Game m) Move Int (Bool, NodeState Move Int) #-}
 pvInnerLoop :: Node m e s
             => Path e s	-- current beta
             -> Int	-- current search depth
@@ -657,7 +645,9 @@ reserveExtension uex exd = do
             modify $ \s -> s { usedext = usedext s + exd }
             return exd
 
--- {-# SPECIALIZE pvInnerLoopExten :: Node m e Int => Int -> Int -> Bool -> Int -> [e] -> Search m e Int (Int, [e]) #-}
+{-# SPECIALIZE pvInnerLoopExten :: Node (Game m) Move Int
+                 => Path Move Int -> Int -> Bool -> Int -> NodeState Move Int
+                 -> Search (Game m) Move Int (Path Move Int) #-}
 pvInnerLoopExten :: Node m e s => Path e s -> Int -> Bool -> Int -> NodeState e s
                  -> Search m e s (Path e s)
 pvInnerLoopExten b d spec exd nst = do
@@ -720,7 +710,9 @@ pvInnerLoopExten b d spec exd nst = do
           okToReduce t = lmrActive && not (inPv || nearmate a || spec || exd > 0 || d < lmrMinDRed)
                              && not t
 
--- {-# SPECIALIZE checkFailOrPVLoop :: Node m e Int => PVState e Int -> Int -> Int -> Int -> e -> Int -> [e] -> Search m e Int (Bool, [e]) #-}
+{-# SPECIALIZE checkFailOrPVLoop :: Node (Game m) Move Int
+                  => SStats -> Path Move Int -> Int -> Move -> Path Move Int
+                  -> NodeState Move Int -> Search (Game m) Move Int (Bool, NodeState Move Int) #-}
 checkFailOrPVLoop :: Node m e s => SStats -> Path e s -> Int -> e -> Path e s
                   -> NodeState e s -> Search m e s (Bool, NodeState e s)
 checkFailOrPVLoop xstats b d e s nst = do
@@ -783,7 +775,8 @@ checkFailOrPVLoop xstats b d e s nst = do
 
 -- We don't sort the moves here, they have to come sorted from genEdges
 -- But we consider the best moves first (best from previous iteration, killers)
--- {-# INLINE genAndSort #-}
+{-# SPECIALIZE genAndSort :: Node (Game m) Move Int
+    => Seq Move -> Killer Move Int -> Int -> Bool -> Search (Game m) Move Int (Alt Move) #-}
 genAndSort :: Node m e s => Seq e -> Killer e s -> Int -> Bool -> Search m e s (Alt e)
 genAndSort lastpath kill d pv = do
     adp <- gets absdp 
@@ -806,7 +799,8 @@ nextDepth !d w !lmr !pv = (m0d, reduced)
           !m0d = max 0 nd
 
 -- This is a kind of monadic fold optimized for (beta) cut
-{-# INLINE pvLoop #-}
+-- {-# INLINE pvLoop #-}
+{-# SPECIALIZE pvLoop :: Monad m => (s -> Move -> m (Bool, s)) -> s -> Alt Move -> m s #-}
 pvLoop :: Monad m => (s -> e -> m (Bool, s)) -> s -> Alt e -> m s
 pvLoop _ s (Alt [])     = return s
 pvLoop f s (Alt (e:es)) = do
@@ -814,7 +808,9 @@ pvLoop f s (Alt (e:es)) = do
     if cut then return s'
            else pvLoop f s' $ Alt es
 
--- {-# SPECIALIZE isPruneFutil :: Node m e Int => Int -> Int -> Int -> Search m e Int (Bool, Int) #-}
+{-# SPECIALIZE isPruneFutil :: Node (Game m) Move Int
+                 => Int -> Path Move Int -> Path Move Int
+                 -> Search (Game m) Move Int (Bool, Path Move Int) #-}
 isPruneFutil :: Node m e s => Int -> Path e s -> Path e s -> Search m e s (Bool, Path e s)
 isPruneFutil d a b
     | d > maxFutilDepth = return (False, 0)
@@ -831,7 +827,7 @@ isPruneFutil d a b
                 else return (False, 0)
 
 -- PV Quiescent Search
-{-# SPECIALIZE pvQSearch :: Node m e Int => Int -> Int -> Int -> Search m e Int Int #-}
+{-# SPECIALIZE pvQSearch :: Node (Game m) Move Int => Int -> Int -> Int -> Search (Game m) Move Int Int #-}
 pvQSearch :: Node m e s => s -> s -> Int -> Search m e s s
 -- pvQSearch a b c | c > qsMaxChess = lift staticVal  -- limit the no of chess in qs path
 -- pvQSearch a b c | c > qsMaxChess = return 0  -- TEST: consider here endless loop
@@ -879,8 +875,8 @@ pvQSearch a b c = do				   -- to avoid endless loops
                                  -- qindent $ "<= " ++ show s
                                  return s
 
--- {-# INLINE pvQInnerLoop #-}
-{-# SPECIALIZE pvQInnerLoop :: Node m e Int => Int -> Int -> Int -> e -> Search m e Int (Bool, Int) #-}
+{-# SPECIALIZE pvQInnerLoop :: Node (Game m) Move Int => Int -> Int -> Int -> Move
+                            -> Search (Game m) Move Int (Bool, Int) #-}
 pvQInnerLoop :: Node m e s => s -> Int -> s -> e -> Search m e s (Bool, s)
 pvQInnerLoop b c a e = do
     -- here: delta pruning: captured piece + 200 > a? then go on, else return
@@ -900,7 +896,7 @@ pvQInnerLoop b c a e = do
                then return (False, s)
                else return (False, a)
 
-{-# SPECIALIZE bestMoveFromHash :: Node m e Int => Search m e Int (Seq e) #-}
+{-# SPECIALIZE bestMoveFromHash :: Node (Game m) Move Int => Search (Game m) Move Int (Seq Move) #-}
 bestMoveFromHash :: Node m e s => Search m e s (Seq e)
 bestMoveFromHash = do
     reTrieve
@@ -924,7 +920,7 @@ reportStats = do
              ++ ", retrieve: " ++ show (sRetr xst) ++ ", rsucc: " ++ show (sRSuc xst)
 
 -- Functions to keep statistics
-{-# SPECIALIZE modStat :: Node m e Int => (SStats -> SStats) -> Search m e Int () #-}
+{-# SPECIALIZE modStat :: Node (Game m) Move Int => (SStats -> SStats) -> Search (Game m) Move Int () #-}
 modStat :: Node m e s => (SStats -> SStats) -> Search m e s ()
 modStat f = modify $ \s -> case f (stats s) of st -> s { stats = st }
 
@@ -953,51 +949,6 @@ reTrieve  = modStat incReTrieve
 
 reSucc :: Node m e s => Int -> Search m e s ()
 reSucc n  = modStat (addReSucc n)
-
-{--
-{-# SPECIALIZE newNode :: Node m e Int => Search m e Int () #-}
-newNode :: Node m e s => Search m e s ()
-newNode = do
-    xst <- gets stats
-    let !n1 = sNodes xst + 1
-    modify $ \s -> s { stats = xst { sNodes = n1 }}
-
-{-# SPECIALIZE newNodeQS :: Node m e Int => Search m e Int () #-}
-newNodeQS :: Node m e s => Search m e s ()
-newNodeQS = do
-    xst <- gets stats
-    let !n1 = sNodes xst + 1
-        !n2 = sNodesQS xst + 1
-    modify $ \s -> s { stats = xst { sNodes = n1, sNodesQS = n2 }} 
-
-{-# SPECIALIZE nulWind :: Node m e Int => Search m e Int () #-}
-nulWind :: Node m e s => Search m e s ()
-nulWind = do
-    xst <- gets stats
-    let !n1 = sNulWind xst + 1
-    modify $ \s -> s { stats = xst { sNulWind = n1 }}
-
-{-# SPECIALIZE reSearch :: Node m e Int => Search m e Int () #-}
-reSearch :: Node m e s => Search m e s ()
-reSearch = do
-    xst <- gets stats
-    let !n1 = sRese xst + 1
-    modify $ \s -> s { stats = xst { sRese = n1 }}
-
-{-# SPECIALIZE reTrieve :: Node m e Int => Search m e Int () #-}
-reTrieve :: Node m e s => Search m e s ()
-reTrieve = do
-    xst <- gets stats
-    let !n1 = sRetr xst + 1
-    modify $ \s -> s { stats = xst { sRetr = n1 }}
-
-{-# SPECIALIZE reSucc :: Node m e Int => Int -> Search m e Int () #-}
-reSucc :: Node m e s => Int -> Search m e s ()
-reSucc n = do
-    xst <- gets stats
-    let !n1 = sRSuc xst + n
-    modify $ \s -> s { stats = xst { sRSuc = n1 }}
---}
 
 indentActive :: Node m e s => String -> Search m e s ()
 indentActive s = do

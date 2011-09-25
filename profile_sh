@@ -1,0 +1,1 @@
+cabal configure --enable-executable-profiling --ghc-options=-auto-all
