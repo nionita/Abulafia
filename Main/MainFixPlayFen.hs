@@ -1,18 +1,18 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Main (main) where
 
 import Control.Monad
 import Control.Monad.State (evalState)
--- import qualified Data.ByteString.Char8 as B
 import Data.Char (isSpace)
 import System.Directory (doesFileExist)
 import System.Environment (getArgs)
 import System.IO
--- import System.Time
 
 import Struct.Struct
 import Struct.Status
 import Moves.Moves
 import Moves.Board
+import Moves.BaseTypes
 import Moves.Base
 import Moves.History
 import Eval.Eval
@@ -49,13 +49,15 @@ tellInIO (BestMv a b c d) = putStrLn $ "info score " ++ show a ++ " depth " ++ s
                                          ++ " nodes " ++ show c ++ " pv " ++ show d
 tellInIO (CurrMv a b) = putStrLn $ "info currmove " ++ show a ++ " currmovenumber " ++ show b
 tellInIO (InfoStr s) = putStrLn s
-tellInIO _ = return ()
+-- tellInIO _ = return ()
 
 -- Parameter of the search at this level:
 aspirWindow   = 16	-- initial aspiration window
 showEvalStats = False	-- show eval statistics in logfile
 
 -- One iteration in the search for the best move
+-- bestMoveCont :: Node (Game IO) Move Int
+--              => Int -> MyState -> Maybe Int -> [Move] -> [Move] -> IO ([Move], Int, [Move], MyState)
 bestMoveCont :: Int -> MyState -> Maybe Int -> [Move] -> [Move] -> IO ([Move], Int, [Move], MyState)
 bestMoveCont tiefe stati lastsc lpv rmvs = do
     -- informGuiDepth tiefe
@@ -73,13 +75,6 @@ bestMoveCont tiefe stati lastsc lpv rmvs = do
     when (sc == 0) $ return ()
     let n = nodes . stats $ statf
     tellInIO (BestMv sc tiefe n path)
-    -- informGui sc tiefe n path
-    -- ctxLog "Info" $ "score " ++ show sc ++ " path " ++ show path
-    -- let math = stats statf
-    -- ctxLog "Info" $ "Node reads " ++ show (nreads math) ++ ", read hits "
-    --     ++ show (rhits math) ++ ", read colls " ++ show (rcoll math)
-    --     ++ ", node writes " ++ show (nwrites math) ++ ", write colls "
-    --     ++ show (wcoll math)
     return (path, sc, rmvsf, statf)
 
 searchTheTree :: Int -> Int -> MyState -> Maybe Int -> [Move] -> [Move] -> IO ()

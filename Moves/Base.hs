@@ -51,6 +51,8 @@ instance Score Int where
         where !ip = i + 1
               !im = i - 1
     nearmate i = i >= mateScore - 255 || i <= -mateScore + 255
+    toInt   = id
+    fromInt = id
 
 instance Edge Move where
     {-# INLINE special #-}

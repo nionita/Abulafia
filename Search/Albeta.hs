@@ -23,7 +23,7 @@ debug = False
 
 -- Parameter for aspiration
 useAspirWin = True
-aspIncr :: Score s => Array Int s
+aspIncr :: UArray Int Int
 aspIncr = array (1, 3) [ (1, 128), (2, 32), (3, 8) ]
 aspTries = 3
 -- Aspiration parameter optimization - 300 games:
@@ -69,8 +69,7 @@ logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
 -- Parameters for futility pruning:
 futilActive = True
 maxFutilDepth = 3
-{-# SPECIALIZE futilMargins :: Score Int => Array Int Int #-}
-futilMargins :: Score s => Array Int s
+futilMargins :: UArray Int Int
 -- futilMargins = array (1, 3) [ (1, 400), (2, 650), (3, 1200) ]
 futilMargins = array (1, 3) [ (1, 500), (2, 750), (3, 1200) ]
 -- futilMargins = array (1, 3) [ (1, 600), (2, 900), (3, 1200) ]
@@ -84,26 +83,20 @@ qsMaxChess = 2		-- max number of chess for a quiet search path
 nulActivate = True		-- activate null move reduction
 nulRedux    = 3 -- depth reduction for null move
 nulMoves    = 2	-- how many null moves in sequence are allowed (one or two)
-{-# SPECIALIZE nulMargin :: Score Int => Int #-}
-{-# SPECIALIZE nulSubmrg :: Score Int => Int #-}
-nulMargin, nulSubmrg :: Score s => s
+nulMargin, nulSubmrg :: Int
 nulMargin   = 1	-- 120		-- margin to search the null move (over beta)
 nulSubmrg   = 10	-- improved margin
 nulSubAct   = True
 
 -- Parameter for quiescenst search
-{-# SPECIALIZE inEndlessCheck :: Score Int => Int #-}
-{-# SPECIALIZE qsDelta        :: Score Int => Int #-}
-inEndlessCheck, qsDelta :: Score s => s
+inEndlessCheck, qsDelta :: Int
 inEndlessCheck = -1	-- there is a risk to be left in check
 qsDelta     = 1100
 
 type Search m e s = STPlus (PVState e s) m
 
 -- alpha0, beta0 :: Node m e s => s
-{-# SPECIALIZE alpha0 :: Score Int => Int #-}
-{-# SPECIALIZE beta0  :: Score Int => Int #-}
-alpha0, beta0 :: Score s => s
+alpha0, beta0 :: Int
 alpha0 = minBound + 2000
 beta0  = maxBound - 2000
 
@@ -223,6 +216,8 @@ instance Bounded s => Bounded (Path e s) where
 instance (Show e, Edge e, Score s) => Score (Path e s) where
     nextlev p = p { pathScore = nextlev (pathScore p) }
     nearmate  = nearmate . pathScore
+    toInt   = toInt . pathScore
+    fromInt = pathFromScore "fromInt" . fromInt
 
 noMove :: Alt e -> Bool
 noMove (Alt es) = null es
@@ -245,10 +240,10 @@ alphaBeta abc = do
     let !d = maxdepth abc
         rmvs = Alt $ rootmvs abc
         lpv  = Seq $ lastpv abc
-        searchReduced a b = pvRootSearch a      b     d lpv rmvs True
-        searchLow       b = pvRootSearch alpha0 b     d lpv rmvs True
-        searchHigh    a   = pvRootSearch a      beta0 d lpv rmvs True
-        searchFull        = pvRootSearch alpha0 beta0 d lpv rmvs False	-- ???
+        searchReduced a b = pvRootSearch a       b      d lpv rmvs True
+        searchLow       b = pvRootSearch salpha0 b      d lpv rmvs True
+        searchHigh    a   = pvRootSearch a       sbeta0 d lpv rmvs True
+        searchFull        = pvRootSearch salpha0 sbeta0 d lpv rmvs False	-- ???
         pvro = PVReadOnly { school = learnev abc, albest = best abc }
         -- pvs0 = if learnev abc then pvsInit { ronly = pvro1 } else pvsInit
         pvs0 = pvsInit { ronly = pvro } :: PVState e s
@@ -268,10 +263,14 @@ alphaBeta abc = do
                 liftM fst $ runSearch searchFull pvs0
          else liftM fst $ runSearch searchFull pvs0
     return $! case r of (s, Seq path, Alt rmvs) -> (s, path, rmvs)
+    where salpha0 = fromInt alpha0
+          sbeta0  = fromInt beta0
 
 {-# SPECIALIZE aspirWin :: Node (Game m) Move Int => Int -> Int -> Int -> Seq Move -> Alt Move -> Int -> Game m (Int, Seq Move, Alt Move) #-}
 aspirWin :: Node m e s => s -> s -> Int -> Seq e -> Alt e -> Int -> m (s, Seq e, Alt e)
-aspirWin _ _ d lpv rmvs 0 = liftM fst $ runSearch (pvRootSearch alpha0 beta0 d lpv rmvs True) pvsInit
+aspirWin _ _ d lpv rmvs 0 = liftM fst $ runSearch (pvRootSearch salpha0 sbeta0 d lpv rmvs True) pvsInit
+    where salpha0 = fromInt alpha0
+          sbeta0  = fromInt beta0
 aspirWin a b d lpv rmvs t = do
     r@(s, p, ms) <- liftM fst $ runSearch (pvRootSearch a b d lpv rmvs True) pvsInit
     if s <= a
@@ -281,7 +280,7 @@ aspirWin a b d lpv rmvs t = do
             else if nullSeq p
                     then aspirWin (a - incr) (b + incr) d lpv rmvs (t-1)
                     else return r
-    where incr = aspIncr!t
+    where incr = fromInt $ aspIncr!t
 
 -- Root PV Search
 {-# SPECIALIZE pvRootSearch :: Node (Game m) Move Int
@@ -531,7 +530,7 @@ insertToPvs d p ps@(q:qs)
                        -> Search (Game m) Move Int (Path Move Int) #-}
 pvSearch :: Node m e s => NodeState e s -> Path e s -> Path e s -> Int -> Seq e -> Int
                        -> Search m e s (Path e s)
-pvSearch _ a b !d _ _ | d <= 0 = do
+pvSearch _ !a !b !d _ _ | d <= 0 = do
     -- checkMe a "pvSearch 1"
     -- checkMe b "pvSearch 2"
     v <- pvQSearch (pathScore a) (pathScore b) 0
@@ -539,7 +538,7 @@ pvSearch _ a b !d _ _ | d <= 0 = do
     -- let !v' = if v <= a then a else if v > b then b else v
     -- pindent $ "<> " ++ show v
     return $! pathFromScore ("pvQSearch 1:" ++ show v) v
-pvSearch nst !a !b d lastpath lastnull = do
+pvSearch nst !a !b !d lastpath lastnull = do
     -- pindent $ "=> " ++ show a ++ ", " ++ show b
     -- checkMe a "pvSearch 3"
     -- checkMe b "pvSearch 4"
@@ -598,12 +597,14 @@ nullEdgeFailsHigh nst b d lastnull =
                -- checkMe b "nullEdgeFailsHigh 1"
                lift nullEdge	-- do null move
                inschool <- gets $ school . ronly
-               let !nmb = if nulSubAct && not inschool then b - nulSubmrg else b
+               let !nmb = if nulSubAct && not inschool then b - snulSubmrg else b
                    !d1  = d - 1 - nulRedux
                    !lastnull1 = lastnull - 1
-               val <- pvSearch nst (-nmb) (-nmb + nulMargin) d1 (Seq []) lastnull1
+               val <- pvSearch nst (-nmb) (-nmb + snulMargin) d1 (Seq []) lastnull1
                lift nullEdge	-- undo null move
                return $! (-val) >= nmb
+    where snulMargin = fromInt nulMargin
+          snulSubmrg = fromInt nulSubmrg
 
 -- This is the inner loop of the PV search, executed at every level (except root) once per possible move
 -- See the parameter
@@ -789,7 +790,7 @@ genAndSort lastpath kill d pv = do
 -- Late Move Reduction
 -- {-# INLINE nextDepth #-}
 nextDepth :: Int -> Int -> Bool -> Bool -> (Int, Bool)
-nextDepth !d w !lmr !pv = (m0d, reduced)
+nextDepth !d !w !lmr !pv = (m0d, reduced)
     where !nd = if lmr then d - k else d1
           !idx = (min lmrMaxDepth d, min lmrMaxWidth w)
           k  = if pv then lmrReducePv ! idx else lmrReduceArr ! idx
@@ -817,12 +818,15 @@ isPruneFutil d a b
     | otherwise = do
         -- checkMe a "isPruneFutere 1"
         -- checkMe b "isPruneFutere 2"
-        let !margin = pathFromScore "margin" $ futilMargins ! d
+        let !margin = futilMargins ! d
         -- v <- lift materVal	-- can we do here direct static evaluation?
         v <- liftM (pathFromScore "pvQSearch 2") $ pvQSearch (pathScore a) (pathScore b) 0
-        if v < a && v + margin <= a
+        let a' = toInt a
+            b' = toInt b
+            v' = toInt v
+        if v < a && v' + margin <= a'
            then return (True, onlyScore a)
-           else if v > b && v - margin >= b
+           else if v > b && v' - margin >= b'
                 then return (True, onlyScore b)
                 else return (False, 0)
 
@@ -834,7 +838,7 @@ pvQSearch :: Node m e s => s -> s -> Int -> Search m e s s
 pvQSearch a b c = do				   -- to avoid endless loops
     -- qindent $ "=> " ++ show a ++ ", " ++ show b
     stp <- lift staticVal				-- until we can recognize repetition
-    tact <- lift tactical
+    !tact <- lift tactical
     if tact
        then do
            (es1, es2) <- lift $ genEdges 0 0 False
@@ -844,7 +848,7 @@ pvQSearch a b c = do				   -- to avoid endless loops
               then return stp
               else if c >= qsMaxChess
                       -- then qindent ("<= -1") >> return inEndlessCheck
-                      then return inEndlessCheck
+                      then return sinEndlessCheck
                       else do
                           -- for check extensions in case of very few moves (1 or 2):
                           -- if 1 move: search even deeper
@@ -860,7 +864,7 @@ pvQSearch a b c = do				   -- to avoid endless loops
                -- then qindent ("<= " ++ show b) >> return b
                then return b
                else do
-                   let !delta = a - qsDelta
+                   let !delta = a - sqsDelta
                    if qsDeltaCut && delta < a && stp < delta
                       -- then qindent ("<= " ++ show a) >> return a
                       then return a
@@ -874,6 +878,8 @@ pvQSearch a b c = do				   -- to avoid endless loops
                                  s <- pvLoop (pvQInnerLoop b c) a' edges
                                  -- qindent $ "<= " ++ show s
                                  return s
+    where sqsDelta = fromInt qsDelta
+          sinEndlessCheck = fromInt inEndlessCheck
 
 {-# SPECIALIZE pvQInnerLoop :: Node (Game m) Move Int => Int -> Int -> Int -> Move
                             -> Search (Game m) Move Int (Bool, Int) #-}
