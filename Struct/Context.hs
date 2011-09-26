@@ -10,7 +10,8 @@ import Control.Monad.Reader
 import Struct.Struct
 import Struct.Status
 import Config.ConfigClass
-import Search.SearchMonad
+-- import Search.SearchMonad
+import Search.SearchMonadCPS
 
 data InfoToGui = Info {
                     infoDepth :: Int,

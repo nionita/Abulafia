@@ -2,7 +2,6 @@
 module Main (main) where
 
 import Control.Monad
-import Control.Monad.State (evalState)
 import Data.Char (isSpace)
 import System.Directory (doesFileExist)
 import System.Environment (getArgs)
@@ -12,14 +11,18 @@ import Struct.Struct
 import Struct.Status
 import Moves.Moves
 import Moves.Board
-import Moves.BaseTypes
-import Moves.Base
+-- import Moves.BaseTypes
+-- import Moves.Base
+import Moves.BaseTypesD
+import Moves.BaseDirect
 import Moves.History
 import Eval.Eval
 import Hash.SimpleCache
-import Search.AlbetaTypes
-import Search.Albeta
-import Search.SearchMonad
+-- import Search.AlbetaTypes
+-- import Search.Albeta
+import Search.AlbetaTypesD
+import Search.AlbetaDirect
+import Search.SearchMonadCPS
 import Config.ConfigClass
 import Config.Config
 -- import Moves.Notation
@@ -43,7 +46,8 @@ main = do
            let inist = posToState pos ha hi evs
            searchTheTree 1 depth inist Nothing [] []
 
-tellInIO :: Comm Move Int -> IO ()
+-- tellInIO :: Comm Move Int -> IO ()
+tellInIO :: Comm -> IO ()
 tellInIO (LogMes s) = putStrLn $ "Log: " ++ s
 tellInIO (BestMv a b c d) = putStrLn $ "info score " ++ show a ++ " depth " ++ show b
                                          ++ " nodes " ++ show c ++ " pv " ++ show d

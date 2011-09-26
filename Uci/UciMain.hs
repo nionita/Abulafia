@@ -24,11 +24,13 @@ import Config.ConfigClass
 import Hash.SimpleCache
 import Uci.UCI
 import Uci.UciGlue
-import Moves.Base
+-- import Moves.Base
+import Moves.BaseDirect
 import Moves.Moves (movesInit)
 import Moves.Board (posFromFen)
 import Moves.History
-import Search.SearchMonad (execSearch)
+-- import Search.SearchMonad (execSearch)
+import Search.SearchMonadCPS (execSearch)
 import Eval.Eval (paramNames)
 import Eval.FileParams (makeEvalState, learnConfigFilePrefix)
 
@@ -398,7 +400,7 @@ answer s = do
 
 -- Version and suffix:
 progVersion = "0.59"
-progVerSuff = " spc"
+progVerSuff = " dir"
 
 -- These are the possible answers from engine to GUI:
 idName = "id name AbaAba " ++ progVersion ++ progVerSuff

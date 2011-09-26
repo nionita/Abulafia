@@ -55,6 +55,7 @@ Executable FixPlayFen
   Build-depends:	base >= 4, array, mtl, parsec, transformers
   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
                -funfolding-use-threshold=32
+               -fext-core
   if flag(profile)
     GHC-Options: -auto-all
 
