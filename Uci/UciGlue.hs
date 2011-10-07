@@ -6,16 +6,12 @@ module Uci.UciGlue (
 import Data.Array.IArray
 import Control.Monad.State.Lazy
 
--- import qualified Search.SearchMonad as SM
 import qualified Search.SearchMonadCPS as SM
--- import Search.AlbetaTypes
--- import Search.Albeta
 import Search.AlbetaTypesD
 import Search.AlbetaDirect
 import Struct.Struct
 import Struct.Status
 import Struct.Context
--- import Moves.Base
 import Moves.BaseDirect
 import Eval.Eval
 

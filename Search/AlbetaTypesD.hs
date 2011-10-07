@@ -12,7 +12,7 @@ module Search.AlbetaTypesD (
 
 import Control.Monad
 
-import Search.SearchMonad
+-- import Search.SearchMonadCPS
 import Struct.Struct
 
 data ABControl = ABC {

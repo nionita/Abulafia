@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 module Moves.BitBoard (
-    popCount, popCount1, lsb, bbToSquares, less, firstOne, exactOne
+    popCount, popCount1, lsb, bbToSquares, less, firstOne, exactOne, bbToSquaresBB
 ) where
 
 -- import Control.Exception (assert)
@@ -60,9 +60,10 @@ kf = 0x0101010101010101
 -- Already optimized!
 popCount1 :: BBoard -> Int
 popCount1 bb = go bb 0
-    where go :: BBoard -> Int -> Int
-          go 0 n = n
-          go x n = case n + 1 of n1 -> case x `xor` lsb x of x1 -> go x1 n1
+    where go 0  !n = n
+          go !x !n = let !n1 = n + 1
+                         !x1 = x `xor` lsb x
+                     in go x1 n1
 
 {-# INLINE bbToSquares #-}
 bbToSquares :: BBoard -> [Square]
@@ -71,3 +72,12 @@ bbToSquares bb = unfoldr f bb
           f 0 = Nothing
           -- f b = case firstOne b of sq -> Just (sq, b `clearBit` sq)
           f b = case firstOne b of sq -> case b `clearBit` sq of b1 -> Just (sq, b1)
+
+{-# INLINE bbToSquaresBB #-}
+bbToSquaresBB :: (Square -> BBoard) -> BBoard -> BBoard
+bbToSquaresBB f bb = go bb 0
+    where go 0  w = w
+          go !b w = let !sq = firstOne b
+                        !b1 = b `clearBit` sq
+                        !w1 = f sq .|. w
+                    in go b1 w1

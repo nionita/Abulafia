@@ -72,8 +72,8 @@ logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
 futilActive = True
 maxFutilDepth = 3
 futilMargins :: UArray Int Int
-futilMargins = array (1, 3) [ (1, 400), (2, 650), (3, 1200) ]
--- futilMargins = array (1, 3) [ (1, 500), (2, 750), (3, 1200) ]
+-- futilMargins = array (1, 3) [ (1, 400), (2, 650), (3, 1200) ]
+futilMargins = array (1, 3) [ (1, 500), (2, 750), (3, 1200) ]
 -- futilMargins = array (1, 3) [ (1, 600), (2, 900), (3, 1200) ]
 
 -- Parameters for quiescent search:
@@ -599,7 +599,7 @@ pvInnerLoop b d nst e = do
     -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
     checkFailOrPVLoop (stats old) b d e s' nst
 
-reserveExtension uex exd = do
+reserveExtension !uex !exd = do
     if uex >= maxDepthExt || exd == 0
        then return 0
        else do
@@ -615,8 +615,9 @@ pvInnerLoopExten b d spec exd nst = do
     exd' <- reserveExtension (usedext old) exd
     let mn = movno nst
         -- late move reduction
-        reduce = okToReduce tact
-        (!d', reduced) = nextDepth (d+exd') mn reduce (forpv nst && a < b - 1)
+        !reduce = okToReduce tact
+        !de = d + exd'
+        (!d', reduced) = nextDepth de mn reduce (forpv nst && a < b - 1)
     -- checkMe a "pvInnerLoopExten 2"
     if forpv nst
        then do
@@ -642,7 +643,7 @@ pvInnerLoopExten b d spec exd nst = do
              else do
                  -- futility pruning
                  inschool <- gets $ school . ronly
-                 (prune, v) <- if not futilActive || tact || inschool
+                 (!prune, !v) <- if not futilActive || tact || inschool
                                   -- don't prune when tactical or in learning
                                   then return (False, 0)
                                   else isPruneFutil d (-b) (-a)
@@ -651,7 +652,7 @@ pvInnerLoopExten b d spec exd nst = do
                     then return v	-- we will fail low or high
                     else do
                        nulWind
-                       s1 <- pvSearch nst (-a-1) (-a) d' pvpath nulMoves
+                       !s1 <- pvSearch nst (-a-1) (-a) d' pvpath nulMoves
                        -- -- checkMe s1 "pvInnerLoopExten 4"
                        if -s1 > a -- we need re-search
                           then do
@@ -804,10 +805,11 @@ pvQSearch a b c = do				   -- to avoid endless loops
                           -- if 1 move: search even deeper
                           -- if 2 moves: same depth
                           -- if 3 or more: no extension
-                          let !esc = length $ take 3 $ unalt edges
+                          -- let !esc = length $ take 3 $ unalt edges
+                          let !esc = lenmax3 $ unalt edges
                               !nc = c + esc - 2
                               !a' = if stp > a then stp else a
-                          s <- pvLoop (pvQInnerLoop b nc) a' edges
+                          !s <- pvLoop (pvQInnerLoop b nc) a' edges
                           -- qindent $ "<= " ++ show s
                           return s
        else if qsBetaCut && stp >= b
@@ -825,11 +827,15 @@ pvQSearch a b c = do				   -- to avoid endless loops
                              then return stp
                              else do
                                  let !a' = if stp > a then stp else a
-                                 s <- pvLoop (pvQInnerLoop b c) a' edges
+                                 !s <- pvLoop (pvQInnerLoop b c) a' edges
                                  -- qindent $ "<= " ++ show s
                                  return s
     where sqsDelta = fromInt qsDelta
           sinEndlessCheck = fromInt inEndlessCheck
+          lenmax3 as = lenmax3' 0 as
+          lenmax3' !n _ | n == 3 = 3
+          lenmax3' !n []         = n
+          lenmax3' !n (a:as)     = lenmax3' (n+1) as
 
 pvQInnerLoop :: Node m => Int -> Int -> Int -> Move -> Search m (Bool, Int)
 pvQInnerLoop b c a e = do

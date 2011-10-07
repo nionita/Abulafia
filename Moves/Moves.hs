@@ -50,8 +50,8 @@ rookMoves = SlMoves {
         }
 
 {-# INLINE smoves #-}
-smoves :: SlMoves -> Square -> BBoard -> BBoard
-smoves bbmoves sq occup = database bbmoves `unsafeAt` idx
+smoves :: SlMoves -> BBoard -> Square -> BBoard
+smoves bbmoves occup sq = database bbmoves `unsafeAt` idx
     where idx = dbbegins bbmoves `unsafeAt` sq + off
           off = fromIntegral
                     $ ((occup .&. masks bbmoves `unsafeAt` sq) * magics bbmoves `unsafeAt` sq)
@@ -69,7 +69,7 @@ fmoves maarr sq = maarr `unsafeAt` sq
 kAttacs = fmoves movKings
 rAttacs = smoves rookMoves
 bAttacs = smoves bishopMoves
-qAttacs sq oc = bAttacs sq oc .|. rAttacs sq oc
+qAttacs oc sq = bAttacs oc sq .|. rAttacs oc sq
 nAttacs = fmoves movKnights
 
 -- The moves of a white pawn (no captures)
@@ -103,9 +103,10 @@ whitePawnAtt, blackPawnAtt :: MaArray
 whitePawnAtt = array (0, 63) $ genArray 0x00000050000 9
 blackPawnAtt = array (0, 63) $ genArray 0x50000000000 49
 
-pAttacs :: Square -> Color -> BBoard
-pAttacs sq White = whitePawnAtt `unsafeAt` sq
-pAttacs sq Black = blackPawnAtt `unsafeAt` sq
+pAttacs :: Color -> Square -> BBoard
+pAttacs White sq = whitePawnAtt `unsafeAt` sq
+pAttacs Black sq = blackPawnAtt `unsafeAt` sq
+{-# INLINE pAttacs #-}
 
 pMovs s White o = pawnSlideW s o
 pMovs s Black o = pawnSlideB s o
@@ -126,10 +127,11 @@ pAll2Moves Black pawns occup = map f $ bbToSquares $ (pawns2 `shiftR` 16) `less`
           occ2 = occup .|. (occup `shiftR` 8)
           f !x = (x + 16, x)
 
+{-# INLINE fAttacs #-}
 fAttacs :: Square -> Piece -> BBoard -> BBoard  -- piece attacs except pawn
 fAttacs sq King   _  = kAttacs sq
 fAttacs sq Knight _  = nAttacs sq
-fAttacs sq Bishop oc = bAttacs sq oc
-fAttacs sq Rook   oc = rAttacs sq oc
-fAttacs sq Queen  oc = qAttacs sq oc
+fAttacs sq Bishop oc = bAttacs oc sq
+fAttacs sq Rook   oc = rAttacs oc sq
+fAttacs sq Queen  oc = qAttacs oc sq
 fAttacs _  _      _  = 0	-- this would be for pawn, which is calculated different

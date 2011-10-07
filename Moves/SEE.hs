@@ -30,7 +30,7 @@ srcDestsSEE p f !s = zip (repeat (p, s)) $ bbToSquares $ f s
 -- and when we call findLKA we always know as which piece the queen checks
 {-# INLINE findLKA #-}
 findLKA Queen ksq psq
-    | rAttacs ksq bpsq .&. bpsq == 0 = findLKA Bishop ksq psq
+    | rAttacs bpsq ksq .&. bpsq == 0 = findLKA Bishop ksq psq
     | otherwise                      = findLKA Rook   ksq psq
     where bpsq = bit psq
 findLKA pt ksq psq = (psq, kp .&. pk)
@@ -67,7 +67,7 @@ funcPiecesSli = [ (bAttacs, bishops), (rAttacs, rooks), (qAttacs, queens) ]
 
 allAttackingPawns :: MyPos -> Square -> BBoard -> BBoard
 allAttackingPawns pos sq moved
-    = (pAttacs sq White .&. black pos .|. pAttacs sq Black .&. white pos) .&. (pawns pos `less` moved)
+    = (pAttacs White sq .&. black pos .|. pAttacs Black sq .&. white pos) .&. (pawns pos `less` moved)
 
 newAttacs :: MyPos -> Square -> BBoard -> BBoard
 newAttacs pos sq moved = foldl' go (allAttackingPawns pos sq moved) $ tail funcPiecesAsc

@@ -52,7 +52,7 @@ Executable PlotEvolve
 
 Executable FixPlayFen
   Main-is:	Main\MainFixPlayFen.hs
-  Build-depends:	base >= 4, array, mtl, parsec, transformers
+  Build-depends: base >= 4, array, mtl, parsec, transformers, bytestring
   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
                -funfolding-use-threshold=32
                -fext-core
@@ -66,12 +66,13 @@ Executable FixPlayFen
 
 Executable Evolve
   Main-is:	Main\MainEvolve.hs
-  Build-depends:	base >= 4, process, filepath, bytestring, old-locale
+  Build-depends: base >= 4, process, filepath, bytestring, old-locale
   GHC-Options:	-O2 -threaded -rtsopts
 
 Executable AbaAba
   Main-is:	Main\MainAbaAba.hs
-  Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random, stream-fusion, directory, transformers
+  Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
+                 random, stream-fusion, directory, transformers, bytestring
   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
                -funfolding-use-threshold=32
   if flag(profile)
