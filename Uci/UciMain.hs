@@ -24,11 +24,11 @@ import Config.ConfigClass
 import Hash.SimpleCache
 import Uci.UCI
 import Uci.UciGlue
-import Moves.BaseDirect
+import Moves.Base
 import Moves.Moves (movesInit)
 import Moves.Board (posFromFen)
 import Moves.History
-import Search.SearchMonadCPS (execSearch)
+import Search.SearchMonad (execSearch)
 import Eval.Eval (paramNames)
 import Eval.FileParams (makeEvalState, learnConfigFilePrefix)
 
@@ -397,8 +397,8 @@ answer s = do
     liftIO $ writeChan (writer ctx) s
 
 -- Version and suffix:
-progVersion = "0.59"
-progVerSuff = " di1"
+progVersion = "0.60"
+progVerSuff = ""
 
 -- These are the possible answers from engine to GUI:
 idName = "id name AbaAba " ++ progVersion ++ progVerSuff

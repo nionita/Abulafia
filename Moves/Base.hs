@@ -10,7 +10,8 @@ module Moves.Base (
     doMove, undoMove, genMoves, genTactMoves,
     useHash, learnEval,
     staticVal0, mateScore,
-    showMyPos
+    showMyPos,
+    nextlev, nearmate, toInt, fromInt, special
 ) where
 
 import Data.Array.IArray
@@ -31,7 +32,6 @@ import System.Random
 import Moves.BaseTypes
 import Search.AlbetaTypes
 import qualified Search.SearchMonad as SM
-import Search.Albeta
 import Struct.Struct
 import Hash.SimpleCache
 import Struct.Status
@@ -42,23 +42,21 @@ import Eval.Eval
 import Moves.ShowMe
 import Moves.History
 
-instance Score Int where
-    {-# INLINE nextlev #-}
-    nextlev !i
-        | i >= mateScore - 255    = -im
-        | i <= (-mateScore) + 255 = -ip
-        | otherwise               = -i
-        where !ip = i + 1
-              !im = i - 1
-    nearmate i = i >= mateScore - 255 || i <= -mateScore + 255
-    toInt   = id
-    fromInt = id
+nextlev !i
+    | i >= mateScore - 255    = -im
+    | i <= (-mateScore) + 255 = -ip
+    | otherwise               = -i
+    where !ip = i + 1
+          !im = i - 1
+nearmate i = i >= mateScore - 255 || i <= -mateScore + 255
+toInt   = id
+fromInt = id
 
-instance Edge Move where
-    {-# INLINE special #-}
-    special = moveIsSpecial
+-- instance Edge Move where
+{-# INLINE special #-}
+special = moveIsSpecial
 
-instance CtxMon m => Node (Game m) Move Int where
+instance CtxMon m => Node (Game r m) where
     staticVal = staticVal0
     materVal  = materVal0
     genEdges = genMoves
@@ -78,9 +76,6 @@ instance CtxMon m => Node (Game m) Move Int where
     {-# INLINE curNodes #-}
     curNodes = getNodes
     inform = SM.lift . tellCtx
-    -- inform a b c d = SM.lift $ informGui a b c d
-    -- informCM a b = SM.lift $ informGuiCM a b
-    -- logmes s = SM.lift $ ctxLog "Info" s
     choose  = choose0
 
 -- Some options and parameters:
@@ -89,19 +84,19 @@ useHash     = False
 learnEval   = False
 depthForMovesSortPv = 1	-- use history for sorting moves when pv or cut nodes
 depthForMovesSort   = 1	-- use history for sorting moves
--- scoreDiffEqual      = 4 -- under this score difference moves are considered to be equal (choose random)
-scoreDiffEqual      = 0 -- under this score difference moves are considered to be equal (choose random)
+scoreDiffEqual      = 4 -- under this score difference moves are considered to be equal (choose random)
+-- scoreDiffEqual      = 0 -- under this score difference moves are considered to be equal (choose random)
 minLearnDepth = 1
 maxLearnDepth = 1
 
 mateScore = 20000
 
-getNodes :: CtxMon m => Game m Int
+getNodes :: CtxMon m => Game r m Int
 {-# INLINE getNodes #-}
 getNodes = gets (nodes . stats)
 
 {-# INLINE getPos #-}
-getPos :: CtxMon m => Game m MyPos
+getPos :: CtxMon m => Game r m MyPos
 getPos = gets (head . stack)
 
 posToState :: MyPos -> Cache -> History -> EvalState -> MyState
@@ -122,7 +117,7 @@ debugGen = False
 useCaptWL = False
 loosingLast = False
 
-genMoves :: CtxMon m => Int -> Int -> Bool -> Game m ([Move], [Move])
+genMoves :: CtxMon m => Int -> Int -> Bool -> Game r m ([Move], [Move])
 genMoves depth absdp pv = do
     p <- getPos
     -- when debugGen $ do
@@ -154,7 +149,7 @@ genMoves depth absdp pv = do
 onlyWinningCapts = True
 
 -- Generate only tactical moves, i.e. promotions, captures & check escapes
-genTactMoves :: CtxMon m => Game m [Move]
+genTactMoves :: CtxMon m => Game r m [Move]
 genTactMoves = do
     p <- getPos
     let !c = moving p
@@ -171,7 +166,7 @@ genTactMoves = do
              | otherwise        = l1 ++ l2
     return mvs
 
-sortMovesFromHist :: CtxMon m => Int -> [Move] -> Game m [Move]
+sortMovesFromHist :: CtxMon m => Int -> [Move] -> Game r m [Move]
 sortMovesFromHist d mvs = do
     s <- get
     -- mvsc <- liftIO $ mapM (\m -> fmap negate $ valHist (hist s) (fromSquare m) (toSquare m) d) mvs
@@ -180,13 +175,13 @@ sortMovesFromHist d mvs = do
     let (posi, zero) = partition ((/=0) . snd) $ zip mvs mvsc
     return $! map fst $ sortBy (comparing snd) posi ++ zero
 
-massert :: CtxMon m => String -> Game m Bool -> Game m ()
+massert :: CtxMon m => String -> Game r m Bool -> Game r m ()
 massert s mb = do
     b <- mb
     if b then return () else error s
 
 {-# INLINE statNodes #-}
-statNodes :: CtxMon m => Game m ()
+statNodes :: CtxMon m => Game r m ()
 statNodes = do
     s <- get
     let st = stats s
@@ -198,7 +193,7 @@ showMyPos :: MyPos -> String
 showMyPos p = showTab (black p) (slide p) (kkrq p) (diag p) ++ "================\n"
 
 -- move from a node to a descendent
-doMove :: CtxMon m => Bool -> Move -> Bool -> Game m (DoResult Int)
+doMove :: CtxMon m => Bool -> Move -> Bool -> Game r m DoResult
 doMove real m qs = do
     statNodes   -- when counting all visited nodes
     s  <- get
@@ -228,7 +223,7 @@ doMove real m qs = do
                     -- case p of _ -> return ()
                     return $ Exten dext
 
-doNullMove :: CtxMon m => Game m ()
+doNullMove :: CtxMon m => Game r m ()
 doNullMove = do
     s <- get
     let !p0 = if null (stack s) then error "doNullMove" else head $ stack s
@@ -239,7 +234,7 @@ doNullMove = do
         !p = p' { staticScore = sts, staticFeats = feats }
     put s { stack = p : ps }
 
-checkRemisRules :: CtxMon m => MyPos -> Game m Bool
+checkRemisRules :: CtxMon m => MyPos -> Game r m Bool
 checkRemisRules p = do
     s <- get
     if remis50Moves p
@@ -251,7 +246,7 @@ checkRemisRules p = do
             (_:_:_)    -> return True
             _          -> return False
 
-checkRepeatPv :: CtxMon m => MyPos -> Bool -> Game m Bool
+checkRepeatPv :: CtxMon m => MyPos -> Bool -> Game r m Bool
 checkRepeatPv _ False = return False
 checkRepeatPv p _ = do
     s <- get
@@ -263,38 +258,38 @@ checkRepeatPv p _ = do
     where imagRevers t = isReversible t && not (realMove t)
 
 {-# INLINE undoMove #-}
-undoMove :: CtxMon m => Move -> Game m ()
+undoMove :: CtxMon m => Move -> Game r m ()
 undoMove m = modify $ \s -> s { stack = tail $ stack s }
 
 -- Tactical positions will be searched complete in quiescent search
 -- Currently only when in in check
 {-# INLINE tacticalPos #-}
-tacticalPos :: CtxMon m => Game m Bool
+tacticalPos :: CtxMon m => Game r m Bool
 tacticalPos = do
     t <- getPos
     return $! check t /= 0
 
 {-# INLINE isMoveLegal #-}
-isMoveLegal :: CtxMon m => Move -> Game m Bool
+isMoveLegal :: CtxMon m => Move -> Game r m Bool
 isMoveLegal m = do
     t <- getPos
     return $! legalMove t m
 
-isKillCand :: CtxMon m => Move -> Move -> Game m Bool
+isKillCand :: CtxMon m => Move -> Move -> Game r m Bool
 isKillCand mm ym
     | toSquare mm == toSquare ym = return False
     | otherwise = do
         t <- getPos
         return $! nonCapt t ym
 
-okInSequence :: CtxMon m => Move -> Move -> Game m Bool
+okInSequence :: CtxMon m => Move -> Move -> Game r m Bool
 okInSequence m1 m2 = do
     t <- getPos
     return $! alternateMoves t m1 m2
 
 -- Static evaluation function
 {-# INLINE staticVal0 #-}
-staticVal0 :: CtxMon m => Game m Int
+staticVal0 :: CtxMon m => Game r m Int
 staticVal0 = do
     s <- get
     t <- getPos
@@ -310,7 +305,7 @@ staticVal0 = do
     -- when debug $ lift $ ctxLog "Debug" $ "--> staticVal0 " ++ show stSc1
     return $! stSc1
 
-materVal0 :: CtxMon m => Game m Int
+materVal0 :: CtxMon m => Game r m Int
 materVal0 = do
     t <- getPos
     let !m = mater t
@@ -322,7 +317,7 @@ quiet :: MyPos -> Bool
 quiet p = at .&. ta == 0
     where (!at, !ta) = if moving p == White then (whAttacs p, black p) else (blAttacs p, white p)
 
-learnEvals :: CtxMon m => Int -> Int -> Int -> Int -> Game m ()
+learnEvals :: CtxMon m => Int -> Int -> Int -> Int -> Game r m ()
 learnEvals depth typ score score0 = do
     s <- get
     t <- getPos
@@ -348,7 +343,7 @@ learnEvals depth typ score score0 = do
 -- fLearnMatEnPri xs = xs!!0 + xs!!1	-- shoud drive the parameters to [1, 1, 0, ...]
 
 {-# INLINE currDSP #-}
-currDSP :: CtxMon m => Game m (Int, Int, Int, Move, Int)
+currDSP :: CtxMon m => Game r m (Int, Int, Int, Move, Int)
 currDSP = if not useHash then return empRez else do
     -- when debug $ lift $ ctxLog "Debug" $ "--> currDSP "
     s <- get
@@ -367,7 +362,7 @@ currDSP = if not useHash then return empRez else do
     where empRez = (-1, 0, 0, Move 0, 0)
 
 {-# INLINE storeSearch #-}
-storeSearch :: CtxMon m => Int -> Int -> Int -> Move -> Int -> Game m ()
+storeSearch :: CtxMon m => Int -> Int -> Int -> Move -> Int -> Game r m ()
 storeSearch deep tp sc best nodes = if not useHash then return () else do
     s <- get
     p <- getPos
@@ -383,7 +378,7 @@ storeSearch deep tp sc best nodes = if not useHash then return () else do
     return ()
 
 -- History heuristic table update when beta cut move
-betaMove0 :: CtxMon m => Bool -> Int -> Int -> Move -> Game m ()
+betaMove0 :: CtxMon m => Bool -> Int -> Int -> Move -> Game r m ()
 betaMove0 good dp absdp m = do
     s <- get
     t <- getPos
@@ -402,7 +397,7 @@ showChoose pvs = do
 --}
 
 -- Choose between almost equal (root) moves
-choose0 :: CtxMon m => Bool -> [(Int, [Move])] -> Game m (Int, [Move])
+choose0 :: CtxMon m => Bool -> [(Int, [Move])] -> Game r m (Int, [Move])
 choose0 True pvs = return $ head pvs
 choose0 _    pvs = case pvs of
     p1 : [] -> return p1
@@ -417,5 +412,5 @@ choose0 _    pvs = case pvs of
                r <- liftIO $ getStdRandom (randomR (0, len - 1))
                return $! equal !! r
 
-logMes :: CtxMon m => String -> Game m ()
+logMes :: CtxMon m => String -> Game r m ()
 logMes s = SM.lift $ tellCtx . LogMes $ s

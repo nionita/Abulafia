@@ -10,8 +10,7 @@ import qualified Text.ParserCombinators.Parsec as P
 import Text.ParserCombinators.Parsec ((<|>))
 
 import Struct.Struct
--- import Moves.Base
-import Moves.BaseDirect
+import Moves.Base
 
 data UCIMess
     = Uci

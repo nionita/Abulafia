@@ -5,67 +5,50 @@
 
 module Search.AlbetaTypes (
     Node(..),
-    Edge(..),
-    Score(..),
     DoResult(..),
     Comm(..),
     ABControl(..)
 ) where
 
 import Control.Monad
--- import Data.List (delete, sortBy)
--- import Data.Ord (comparing)
--- import Data.Array.Base
--- import Data.Array.Unboxed
 
-import Search.SearchMonad
+import Struct.Struct
 
-class (Ord s, Num s, Bounded s) => Score s where
-    nextlev  :: s -> s
-    nearmate :: s -> Bool
-    toInt    :: s -> Int
-    fromInt  :: Int -> s
-
-class Edge e where
-    special :: e -> Bool
-
-data ABControl e s = ABC {
+data ABControl = ABC {
         maxdepth :: !Int,
-        lastpv :: [e],
-        lastscore :: Maybe s,
-        rootmvs :: [e],
-        window :: s,
+        lastpv :: [Move],
+        lastscore :: Maybe Int,
+        rootmvs :: [Move],
+        window :: Int,
         learnev :: Bool,
         best :: Bool
     } deriving Show
 
--- The node class, dependent on a game monad m, an edge type e (moves)
--- and a score type s
-class (Monad m, Eq e, Show e, Edge e, Score s, Show s) =>
-  Node m e s | m -> e, m -> s, s -> m where
-    staticVal :: m s  -- static evaluation of a node
-    materVal  :: m s  -- material evaluation (for prune purpose)
-    genEdges :: Int -> Int -> Bool -> m ([e], [e])  -- generate all legal edges
-    genTactEdges :: m [e]  -- generate all edges in tactical positions
-    legalEdge :: e -> m Bool	-- is the move legal?
-    killCandEdge :: e -> e -> m Bool	-- is the move killer candidate?
-    inSeq :: e -> e -> m Bool	-- can 2 moves be in sequence?
+-- The node class, dependent on a game monad m
+class Monad m => Node m where
+    staticVal :: m Int  -- static evaluation of a node
+    materVal  :: m Int  -- material evaluation (for prune purpose)
+    genEdges :: Int -> Int -> Bool -> m ([Move], [Move])  -- generate all legal edges
+    genTactEdges :: m [Move]  -- generate all edges in tactical positions
+    legalEdge :: Move -> m Bool	-- is the move legal?
+    killCandEdge :: Move -> Move -> m Bool	-- is the move killer candidate?
+    inSeq :: Move -> Move -> m Bool	-- can 2 moves be in sequence?
     tactical :: m Bool -- if a position is tactical, search further
-    doEdge   :: e -> Bool -> m (DoResult s)
-    undoEdge :: e -> m ()
-    betaMove :: Bool -> Int -> Int -> e -> m ()   -- called for beta-cut moves
+    doEdge   :: Move -> Bool -> m DoResult
+    undoEdge :: Move -> m ()
+    betaMove :: Bool -> Int -> Int -> Move -> m ()   -- called for beta-cut moves
     nullEdge :: m ()		   -- do null move (and also undo)
-    retrieve :: m (Int, Int, s, e, Int)   -- retrieve the position in hash
-    store :: Int -> Int -> s -> e -> Int -> m () -- store the position in hash
-    learn :: Int -> Int -> s -> s -> m ()	-- learn the evaluation parameters
+    retrieve :: m (Int, Int, Int, Move, Int)   -- retrieve the position in hash
+    store :: Int -> Int -> Int -> Move -> Int -> m () -- store the position in hash
+    learn :: Int -> Int -> Int -> Int -> m ()	-- learn the evaluation parameters
     curNodes :: m Int
-    inform :: Comm e s -> m ()		-- communicate to the world (log, current and best move)
-    choose :: Bool -> [(s, [e])] -> m (s, [e])
+    inform :: Comm -> m ()		-- communicate to the world (log, current and best move)
+    choose :: Bool -> [(Int, [Move])] -> m (Int, [Move])
 
-data DoResult s = Exten !Int	-- return mit extension (evtl 0)
-                | Final !s	-- return with a final score (probably draw)
+data DoResult = Exten !Int	-- return mit extension (evtl 0)
+              | Final !Int	-- return with a final score (probably draw)
 
-data Comm e s = LogMes String
-              | BestMv s Int Int [e]
-              | CurrMv e Int
-              | InfoStr String
+data Comm = LogMes String
+          | BestMv Int Int Int [Move]
+          | CurrMv Move Int
+          | InfoStr String

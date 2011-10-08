@@ -7,7 +7,7 @@ Name:                AbaAba
 -- The package version. See the Haskell package versioning policy
 -- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
 -- standards guiding when and how versions should be incremented.
-Version:             0.59
+Version:             0.60
 
 -- A short (one-line) description of the package.
 Synopsis:            Chess engine
@@ -52,10 +52,10 @@ Executable PlotEvolve
 
 Executable FixPlayFen
   Main-is:	Main\MainFixPlayFen.hs
-  Build-depends: base >= 4, array, mtl, parsec, transformers, bytestring
+  Build-depends: base >= 4, array, mtl, parsec, transformers
   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
                -funfolding-use-threshold=32
-               -fext-core
+--               -fext-core
   if flag(profile)
     GHC-Options: -auto-all
 
@@ -72,7 +72,7 @@ Executable Evolve
 Executable AbaAba
   Main-is:	Main\MainAbaAba.hs
   Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
-                 random, stream-fusion, directory, transformers, bytestring
+                 random, stream-fusion, directory, transformers
   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
                -funfolding-use-threshold=32
   if flag(profile)
@@ -117,9 +117,9 @@ Executable AbaAba
 --   GHC-Options: -O2 -funbox-strict-fields -threaded -fvia-C -optc-O3
   -- C-sources: Cbits\rts_hooks.c
 
-Executable Perft
-   Main-is:             Main/Perft.hs
-   Build-depends:       base >= 4, array, old-time, vector, stream-fusion
-   GHC-Options: -O2 -funbox-strict-fields -threaded -keep-tmp-files
-   if flag(profile)
-     GHC-Options: -auto-all
+-- Executable Perft
+--    Main-is:             Main/Perft.hs
+--    Build-depends:       base >= 4, array, old-time, vector, stream-fusion
+--    GHC-Options: -O2 -funbox-strict-fields -threaded -keep-tmp-files
+--    if flag(profile)
+--      GHC-Options: -auto-all

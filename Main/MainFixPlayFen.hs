@@ -11,18 +11,14 @@ import Struct.Struct
 import Struct.Status
 import Moves.Moves
 import Moves.Board
--- import Moves.BaseTypes
--- import Moves.Base
-import Moves.BaseTypesD
-import Moves.BaseDirect
+import Moves.BaseTypes
+import Moves.Base
 import Moves.History
 import Eval.Eval
 import Hash.SimpleCache
--- import Search.AlbetaTypes
--- import Search.Albeta
-import Search.AlbetaTypesD
-import Search.AlbetaDirect
-import Search.SearchMonadCPS
+import Search.AlbetaTypes
+import Search.Albeta
+import Search.SearchMonad
 import Config.ConfigClass
 import Config.Config
 -- import Moves.Notation
