@@ -11,7 +11,7 @@ module Moves.Base (
     useHash, learnEval,
     staticVal0, mateScore,
     showMyPos,
-    nextlev, nearmate, toInt, fromInt, special
+    nextlev, nearmate, special
 ) where
 
 import Data.Array.IArray
@@ -42,15 +42,13 @@ import Eval.Eval
 import Moves.ShowMe
 import Moves.History
 
-nextlev !i
-    | i >= mateScore - 255    = -im
-    | i <= (-mateScore) + 255 = -ip
-    | otherwise               = -i
-    where !ip = i + 1
-          !im = i - 1
+{-# INLINE nextlev #-}
+nextlev :: Int -> Int
+nextlev = negate
+
+{-# INLINE nearmate #-}
+nearmate :: Int -> Bool
 nearmate i = i >= mateScore - 255 || i <= -mateScore + 255
-toInt   = id
-fromInt = id
 
 -- instance Edge Move where
 {-# INLINE special #-}

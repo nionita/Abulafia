@@ -232,10 +232,10 @@ alphaBeta abc = do
     let !d = maxdepth abc
         rmvs = Alt $ rootmvs abc
         lpv  = Seq $ lastpv abc
-        searchReduced a b = pvRootSearch a       b      d lpv rmvs True
-        searchLow       b = pvRootSearch salpha0 b      d lpv rmvs True
-        searchHigh    a   = pvRootSearch a       sbeta0 d lpv rmvs True
-        searchFull        = pvRootSearch salpha0 sbeta0 d lpv rmvs False	-- ???
+        searchReduced a b = pvRootSearch a      b     d lpv rmvs True
+        searchLow       b = pvRootSearch alpha0 b     d lpv rmvs True
+        searchHigh    a   = pvRootSearch a      beta0 d lpv rmvs True
+        searchFull        = pvRootSearch alpha0 beta0 d lpv rmvs False	-- ???
         pvro = PVReadOnly { school = learnev abc, albest = best abc }
         -- pvs0 = if learnev abc then pvsInit { ronly = pvro1 } else pvsInit
         pvs0 = pvsInit { ronly = pvro } :: PVState
@@ -244,24 +244,26 @@ alphaBeta abc = do
              Just sp -> do
                 let !alpha1 = sp - window abc
                     !beta1  = sp + window abc
+                informStr $ "+++ Aspi search with d = " ++ show d
+                               ++ " alpha = " ++ show alpha1
+                               ++ " beta = " ++ show beta1
                 -- aspirWin alpha1 beta1 d lpv rmvs aspTries
                 r1@(s1, es1, _) <- liftM fst $ runSearch (searchReduced alpha1 beta1) pvs0
                 if s1 > alpha1 && s1 < beta1 && not (nullSeq es1)
                 -- if s1 > alpha1 && not (nullSeq es1)
                     then return r1
-                    else liftM fst $ runSearch searchFull pvs0
+                    else do
+                        informStr $ "+++ Redo search with d = " ++ show d
+                               ++ " after s1 = " ++ show s1
+                        liftM fst $ runSearch searchFull pvs0
              Nothing -> do
-                informStr $ "+++ Start search with d = " ++ show d ++ " (full)"
+                informStr $ "+++ Full search with d = " ++ show d
                 liftM fst $ runSearch searchFull pvs0
          else liftM fst $ runSearch searchFull pvs0
     return $! case r of (s, Seq path, Alt rmvs) -> (s, path, rmvs)
-    where salpha0 = fromInt alpha0
-          sbeta0  = fromInt beta0
 
 aspirWin :: Node m => Int -> Int -> Int -> Seq Move -> Alt Move -> Int -> m (Int, Seq Move, Alt Move)
-aspirWin _ _ d lpv rmvs 0 = liftM fst $ runSearch (pvRootSearch salpha0 sbeta0 d lpv rmvs True) pvsInit
-    where salpha0 = fromInt alpha0
-          sbeta0  = fromInt beta0
+aspirWin _ _ d lpv rmvs 0 = liftM fst $ runSearch (pvRootSearch alpha0 beta0 d lpv rmvs True) pvsInit
 aspirWin a b d lpv rmvs t = do
     r@(s, p, ms) <- liftM fst $ runSearch (pvRootSearch a b d lpv rmvs True) pvsInit
     if s <= a
@@ -271,7 +273,7 @@ aspirWin a b d lpv rmvs t = do
             else if nullSeq p
                     then aspirWin (a - incr) (b + incr) d lpv rmvs (t-1)
                     else return r
-    where incr = fromInt $ aspIncr!t
+    where incr = aspIncr!t
 
 -- Root PV Search
 pvRootSearch :: Node m => Int -> Int -> Int -> Seq Move -> Alt Move -> Bool
@@ -304,9 +306,10 @@ pvRootSearch a b d lastpath rmvs aspir = do
                  albest' <- gets (albest . ronly)
                  (s, p) <- if (pathScore (cursc nstf) >= b)
                               then return (pathScore (cursc nstf), unseq $ pathMoves (cursc nstf))
-                              else lift $ choose albest' $ sortBy (comparing fstdesc)
-                                         $ map (\(Pvsl p _ _) -> (pathScore p, unseq $ pathMoves p))
-                                         $ filter pvGood $ pvsl nstf
+                              else lift $ choose albest'
+                                        $ sortBy (comparing fstdesc)
+                                        $ map pvslToPair
+                                        $ filter pvGood $ pvsl nstf
                  when (d < depthForCM) $ informBest s d p
                  let !best = head p
                      !xrmvs = Alt $ best : delete best (unalt edges)	-- best on top
@@ -315,6 +318,20 @@ pvRootSearch a b d lastpath rmvs aspir = do
     lift $ informStr $ "*** Killers at root: " ++ show (killer nstf)
     return rsr
     where fstdesc (a, _) = -a
+
+pvslToPair :: Pvsl -> (Int, [Move])
+pvslToPair (Pvsl { pvPath = p }) = (score, pv)
+    where pv = unseq $ pathMoves p
+          de = pathDepth p
+          sc = pathScore p
+          score = scoreToExtern sc de
+
+-- The internal score is for weird for found mates (always mate)
+-- Turn it to nicer score by considering path lenght to mate
+scoreToExtern :: Int -> Int -> Int
+scoreToExtern sc de
+    | nearmate sc = if sc > 0 then sc - de else sc + de
+    | otherwise   = sc
 
 -- This is the inner loop of the PV search of the root, executed at root once per possible move
 -- See the parameter
@@ -430,14 +447,18 @@ checkFailOrPVRoot xstats b d e s nst = do
                     lift $ betaMove True d (absdp sst) e
                     put sst { stats = statCut (stats sst) mn }
                     xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
-                    let nst1 = nst { cursc = s, weak = False, pvsl = xpvslg, pvcont = Seq [] }
+                    let nst1 = nst { cursc = csc, weak = False, pvsl = xpvslg, pvcont = Seq [] }
+                        !csc = if s > b then combinePath s b else s
                     -- lift $ logmes $ "Root move " ++ show e ++ " failed high: " ++ show s
                     -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
                     return (True, nst1)
                else if s > a
                     then do
                          -- lift $ informStr $ "Next info: " ++ pathOrig s
-                         informBest (pathScore s) (draft sst) (unseq $ pathMoves s)
+                         let sc = pathScore s
+                             pa = unseq $ pathMoves s
+                             le = length pa
+                         informBest (scoreToExtern sc le) (draft sst) pa
                          let typ = 2	-- best move so far (score is exact)
                          when (de >= minToStore) $ lift $ store de typ (pathScore s) e nodes
                          -- when inschool $ do
@@ -788,7 +809,7 @@ pvQSearch a b c = do				   -- to avoid endless loops
               then return stp
               else if c >= qsMaxChess
                       -- then qindent ("<= -1") >> return inEndlessCheck
-                      then return sinEndlessCheck
+                      then return inEndlessCheck
                       else do
                           -- for check extensions in case of very few moves (1 or 2):
                           -- if 1 move: search even deeper
@@ -805,7 +826,7 @@ pvQSearch a b c = do				   -- to avoid endless loops
                -- then qindent ("<= " ++ show b) >> return b
                then return b
                else do
-                   let !delta = a - sqsDelta
+                   let !delta = a - qsDelta
                    if qsDeltaCut && delta < a && stp < delta
                       -- then qindent ("<= " ++ show a) >> return a
                       then return a
@@ -819,9 +840,7 @@ pvQSearch a b c = do				   -- to avoid endless loops
                                  !s <- pvLoop (pvQInnerLoop b c) a' edges
                                  -- qindent $ "<= " ++ show s
                                  return s
-    where sqsDelta = fromInt qsDelta
-          sinEndlessCheck = fromInt inEndlessCheck
-          lenmax3 as = lenmax3' 0 as
+    where lenmax3 as = lenmax3' 0 as
           lenmax3' !n _ | n == 3 = 3
           lenmax3' !n []         = n
           lenmax3' !n (a:as)     = lenmax3' (n+1) as
