@@ -33,7 +33,7 @@ import Moves.BaseTypes
 import Search.AlbetaTypes
 import qualified Search.SearchMonad as SM
 import Struct.Struct
-import Hash.SimpleCache
+import Hash.TransTab
 import Struct.Status
 import Moves.Board
 import Moves.BitBoard
@@ -78,7 +78,7 @@ instance CtxMon m => Node (Game r m) where
 
 -- Some options and parameters:
 debug       = False
-useHash     = False
+useHash     = True
 learnEval   = False
 depthForMovesSortPv = 1	-- use history for sorting moves when pv or cut nodes
 depthForMovesSort   = 1	-- use history for sorting moves
@@ -102,6 +102,7 @@ posToState p c h e = MyState {
                        stack = [updatePos p],
                        hash = c,
                        hist = h,
+                       gener = 0,
                        stats = stats0,
                        evalst = e
                    }
@@ -207,11 +208,12 @@ doMove real m qs = do
         (!sts, feats) = if real then (0, []) else evalState (posEval p' c) (evalst s)
         !p = p' { staticScore = sts, staticFeats = feats }
         !dext = if inCheck p || goPromo p m1 then 1 else 0
+        gn = if real then gener s + 1 else gener s
     -- when debug $
     --     lift $ ctxLog "Debug" $ "*** doMove: " ++ showMyPos p
     -- remis' <- checkRepeatPv p pv
     -- remis  <- if remis' then return True else checkRemisRules p
-    put s { stack = p : stack s }
+    put s { stack = p : stack s, gener = gn }
     remis <- if qs then return False else checkRemisRules p'
     if kingcapt
        then return $ Final mateScore
@@ -347,7 +349,7 @@ currDSP = if not useHash then return empRez else do
     s <- get
     p <- getPos
     -- mhr <- liftIO $ readCache (hash s) (basicPos p)
-    mhr <- liftIO $ readCache (hash s) p
+    mhr <- liftIO $ readCache (hash s) (zobkey p)
     -- let (r, sc) = case mhr of
                -- Just t@(_, _, sco, _, _) -> (t, sco)
                -- _      -> (empRez, 0)
@@ -369,11 +371,11 @@ storeSearch deep tp sc best nodes = if not useHash then return () else do
     --         ++ " best = " ++ show best ++ " nodes = " ++ show nodes
         -- putStrLn $ "info string score in position: " ++ show (staticScore p)
     -- We use the type: 0 - upper limit, 1 - lower limit, 2 - exact score
-    st <- liftIO $ writeCache (hash s) p sc tp deep best nodes
+    liftIO $ writeCache (hash s) (zobkey p) (gener s) deep tp sc best nodes
     -- when debug $ lift $ ctxLog "Debug" $ "*** storeSearch (deep/tp/sc/mv) " ++ show deep
     --      ++ " / " ++ show tp ++ " / " ++ show sc ++ " / " ++ show best
     --      ++ " status: " ++ show st ++ " (" ++ show (zobkey p) ++ ")"
-    return ()
+    -- return ()
 
 -- History heuristic table update when beta cut move
 betaMove0 :: CtxMon m => Bool -> Int -> Int -> Move -> Game r m ()

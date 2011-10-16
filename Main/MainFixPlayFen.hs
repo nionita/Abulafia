@@ -15,7 +15,7 @@ import Moves.BaseTypes
 import Moves.Base
 import Moves.History
 import Eval.Eval
-import Hash.SimpleCache
+import Hash.TransTab
 import Search.AlbetaTypes
 import Search.Albeta
 import Search.SearchMonad

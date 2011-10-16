@@ -21,7 +21,7 @@ import Struct.Struct
 import Struct.Status
 import Struct.Context
 import Config.ConfigClass
-import Hash.SimpleCache
+import Hash.TransTab
 import Uci.UCI
 import Uci.UciGlue
 import Moves.Base
@@ -398,7 +398,7 @@ answer s = do
 
 -- Version and suffix:
 progVersion = "0.60"
-progVerSuff = " iid54r"
+progVerSuff = " iidexp"
 
 -- These are the possible answers from engine to GUI:
 idName = "id name AbaAba " ++ progVersion ++ progVerSuff

@@ -92,7 +92,7 @@ nulSubAct   = True
 
 -- Parameters for internal iterative deepening
 useIID      = True
-minIIDApply = 5
+minIIDApply = 7
 maxIIDDepth = 4
 
 -- Parameter for quiescenst search
@@ -894,7 +894,7 @@ bestMoveFromHash = do
 {-# INLINE bestMoveFromIID #-}
 bestMoveFromIID :: Node m => NodeState -> Path -> Path -> Int -> Int -> Search m (Seq Move)
 bestMoveFromIID nst a b !d lastnull
-    | d < minIIDApply || ownnt nst /= AllNode
+    | d < minIIDApply || ownnt nst == AllNode
                          = return emptySeq
     | otherwise          = pathMoves `liftM` pvSearch nst a b d' emptySeq lastnull
     where d' = min maxIIDDepth (d `div` 2)
