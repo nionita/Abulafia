@@ -893,11 +893,12 @@ bestMoveFromHash = do
 
 {-# INLINE bestMoveFromIID #-}
 bestMoveFromIID :: Node m => NodeState -> Path -> Path -> Int -> Int -> Search m (Seq Move)
-bestMoveFromIID nst a b !d lastnull
-    | d < minIIDApply || ownnt nst == AllNode
+bestMoveFromIID nst a b d lastnull
+    | ownnt nst == AllNode || d < minIIDApply
                          = return emptySeq
     | otherwise          = pathMoves `liftM` pvSearch nst a b d' emptySeq lastnull
-    where d' = min maxIIDDepth (d `div` 2)
+    -- where d' = min maxIIDDepth (d `div` 2)
+    where d' = d - 3
 
 {-# INLINE reportStats #-}
 reportStats :: Node m => Search m ()

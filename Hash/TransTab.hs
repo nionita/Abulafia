@@ -1,7 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE EmptyDataDecls #-}
 module Hash.TransTab (
-    Cache, newCache, readCache, writeCache
+    Cache, newCache, readCache, writeCache,
+    checkProp
     ) where
 
 import Data.Bits
@@ -157,9 +158,9 @@ retrieveEntry tt zkey = do
 -- Actually we always search in the whole cell in the hope to find the zkey and replace it
 -- but also keep track of the weakest entry in the cell, which will be replaced otherwise
 writeCache :: Cache -> ZKey -> Word -> Int -> Int -> Int -> Move -> Int -> IO ()
-writeCache tt zkey gen score tp depth move nodes = do
+writeCache tt zkey gen depth tp score move nodes = do
     let (bas, idx) = zKeyToCellIndex tt zkey
-        pCE = quintToCacheEn tt zkey gen score tp depth move nodes
+        pCE = quintToCacheEn tt zkey gen depth tp score move nodes
     store pCE idx bas bas 4
     where store pCE idx crt rep tries = go crt rep tries
               where go crt rep tries = do
@@ -237,4 +238,12 @@ checkProp = do
     tt <- newCache defaultConfig
     let zkey = 0
         gen  = 0
-    quickCheck $ prop_Inverse tt zkey gen
+    putStrLn $ "Fix zkey & gen: " ++ show zkey ++ ", " ++ show gen
+    -- quickCheck $ prop_Inverse tt zkey gen
+    verboseCheck $ prop_Inverse tt zkey gen
+    putStrLn $ "Arbitrary zkey, fixed gen = " ++ show gen
+    -- quickCheck $ \z -> prop_Inverse tt z gen
+    verboseCheck $ \z -> prop_Inverse tt z gen
+    putStrLn $ "Arbitrary gen, fixed zkey = " ++ show gen
+    -- quickCheck $ \g -> prop_Inverse tt zkey g
+    verboseCheck $ \g -> prop_Inverse tt zkey g

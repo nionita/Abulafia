@@ -12,12 +12,17 @@ import Hash.TransTab
 import Config.ConfigClass
 import Config.Config
 
-main = do
+-- main = mainQC
+-- main = mainBench
+main = mainGen
+
+mainQC = checkProp
+
+mainGen = do
     putStrLn $ "*** Generation 15"
     progMain 100000 15
     putStrLn $ "*** Generation 17"
     progMain 100000 17
--- main = mainBench
 
 mainBench = defaultMain [
            bench "sto ret" $ progMain 100000 0
@@ -38,7 +43,7 @@ makezkey w1 w2 = fromIntegral w1 `shiftL` 32 .|. fromIntegral w2
 
 sto ha g zkeys = do
     mapM_ wrc zkeys
-    where wrc z = writeCache ha z g (score z) (typ z) (deep z) (best z) (node z)
+    where wrc z = writeCache ha z g (deep z) (typ z) (score z) (best z) (node z)
 
 ret ha zkeys = do
     nf <- liftM sum $ mapM rec zkeys
@@ -47,7 +52,7 @@ ret ha zkeys = do
               mr <- readCache ha z
               case mr of
                   Nothing -> return 1	-- putStrLn $ " = " ++ show z ++ ": not found"
-                  Just (sc, ty, de, mv, no) -> do
+                  Just (de, ty, sc, mv, no) -> do
                       let de' = deep z
                           ty' = typ z
                           sc' = score z
