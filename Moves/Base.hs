@@ -6,7 +6,7 @@
 
 module Moves.Base (
     CtxMon(..),
-    posToState, initPos, getPos,
+    posToState, initPos, getPos, posNewSearch,
     doMove, undoMove, genMoves, genTactMoves,
     useHash, learnEval,
     staticVal0, mateScore,
@@ -102,7 +102,6 @@ posToState p c h e = MyState {
                        stack = [updatePos p],
                        hash = c,
                        hist = h,
-                       gener = 0,
                        stats = stats0,
                        evalst = e
                    }
@@ -110,6 +109,9 @@ posToState p c h e = MyState {
                        nodes = 0,
                        maxmvs = 0
                    }
+
+posNewSearch :: MyState -> MyState
+posNewSearch p = p { hash = newGener (hash p) }
 
 debugGen = False
 
@@ -208,12 +210,11 @@ doMove real m qs = do
         (!sts, feats) = if real then (0, []) else evalState (posEval p' c) (evalst s)
         !p = p' { staticScore = sts, staticFeats = feats }
         !dext = if inCheck p || goPromo p m1 then 1 else 0
-        gn = if real then gener s + 1 else gener s
     -- when debug $
     --     lift $ ctxLog "Debug" $ "*** doMove: " ++ showMyPos p
     -- remis' <- checkRepeatPv p pv
     -- remis  <- if remis' then return True else checkRemisRules p
-    put s { stack = p : stack s, gener = gn }
+    put s { stack = p : stack s }
     remis <- if qs then return False else checkRemisRules p'
     if kingcapt
        then return $ Final mateScore
@@ -371,7 +372,7 @@ storeSearch deep tp sc best nodes = if not useHash then return () else do
     --         ++ " best = " ++ show best ++ " nodes = " ++ show nodes
         -- putStrLn $ "info string score in position: " ++ show (staticScore p)
     -- We use the type: 0 - upper limit, 1 - lower limit, 2 - exact score
-    liftIO $ writeCache (hash s) (zobkey p) (gener s) deep tp sc best nodes
+    liftIO $ writeCache (hash s) (zobkey p) deep tp sc best nodes
     -- when debug $ lift $ ctxLog "Debug" $ "*** storeSearch (deep/tp/sc/mv) " ++ show deep
     --      ++ " / " ++ show tp ++ " / " ++ show sc ++ " / " ++ show best
     --      ++ " status: " ++ show st ++ " (" ++ show (zobkey p) ++ ")"

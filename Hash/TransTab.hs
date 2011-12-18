@@ -1,13 +1,14 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE EmptyDataDecls #-}
 module Hash.TransTab (
-    Cache, newCache, readCache, writeCache,
+    Cache, newCache, readCache, writeCache, newGener,
     checkProp
     ) where
 
 import Data.Bits
 import Data.Maybe (fromMaybe)
 import Data.Int
+import Data.Ix
 import Data.Word
 import Foreign.Marshal.Array
 import Foreign.Storable
@@ -19,7 +20,6 @@ import Config.ConfigClass
 import Struct.Struct
 
 type Index = Int
--- type ZKey = Word64		-- comes from struct
 type Mask = Word64
 
 cacheLineSize = 64	-- this should be the size in bytes of a memory cache line on modern processors
@@ -36,8 +36,10 @@ instance Storable Cell where
 
 data Cache
     = Cache {
-          mem 	 	 :: Ptr Cell,	  -- the cache line aligned byte array for the data
-          lomask, mimask, himask :: !Mask -- masks depending on the size (in entries) of the table
+          mem 	:: Ptr Cell,	-- the cache line aligned byte array for the data
+          lomask, mimask,
+          himask :: !Mask,	-- masks depending on the size (in entries) of the table
+          gener :: !Word64	-- the generation of the current search
       }
 
 data PCacheEn = PCacheEn { lo, hi :: {-# UNPACK #-} !Word64 }	-- a packed TT entry
@@ -100,8 +102,12 @@ newCache c = do
         lom      = fromIntegral $ nentries - 1
         mim      = lom .&. cellMask
     memc <- mallocArray ncells
-    return Cache { mem = memc, lomask = lom, mimask = mim, himask = complement lom }
+    return Cache { mem = memc, lomask = lom, mimask = mim, himask = complement lom, gener = 0 }
     where cellMask = complement part3Mask	-- for speed we keep both masks
+
+-- Increase the generation by 1 for a new search
+newGener :: Cache -> Cache
+newGener c = c { gener = (gener c + 1) .&. 0x2F }
 
 -- This computes the base adress of the cell where the given entry should be stored
 -- and the (ideal) index of that entry
@@ -157,12 +163,13 @@ retrieveEntry tt zkey = do
 -- That's why we choose the order in second word like it is (easy comparison)
 -- Actually we always search in the whole cell in the hope to find the zkey and replace it
 -- but also keep track of the weakest entry in the cell, which will be replaced otherwise
-writeCache :: Cache -> ZKey -> Word -> Int -> Int -> Int -> Move -> Int -> IO ()
-writeCache tt zkey gen depth tp score move nodes = do
+writeCache :: Cache -> ZKey -> Int -> Int -> Int -> Move -> Int -> IO ()
+writeCache tt zkey depth tp score move nodes = do
     let (bas, idx) = zKeyToCellIndex tt zkey
-        pCE = quintToCacheEn tt zkey gen depth tp score move nodes
-    store pCE idx bas bas 4
-    where store pCE idx crt rep tries = go crt rep tries
+        gen = gener tt
+        pCE = quintToCacheEn tt zkey depth tp score move nodes
+    store gen pCE idx bas bas 4
+    where store gen pCE idx crt rep tries = go crt rep tries
               where go crt rep tries = do
                         cpCE <- peek crt
                         if isSameEntry tt zkey idx cpCE
@@ -178,7 +185,7 @@ writeCache tt zkey gen depth tp score move nodes = do
 -- Here we implement the logic which decides which entry is weaker
 -- If the current entry has the current generation then we consider the old replacement to be weaker
 -- without to consider other criteria in case it has itself the current generation
-chooseReplaceEntry :: Word -> Ptr PCacheEn -> Ptr PCacheEn -> IO (Ptr PCacheEn)
+chooseReplaceEntry :: Word64 -> Ptr PCacheEn -> Ptr PCacheEn -> IO (Ptr PCacheEn)
 chooseReplaceEntry gen crt rep = if rep == crt then return rep else do
     crte <- peek crt
     if generation crte == gen
@@ -188,17 +195,18 @@ chooseReplaceEntry gen crt rep = if rep == crt then return rep else do
            if betterpart repe > betterpart crte
               then return crt
               else return rep
-    where generation = fromIntegral . (.&. 0x3F) . lo
+    where generation = (.&. 0x3F) . lo
           betterpart = lo	-- there is some noise at the end of that word (26 bits), but we don't care
 
-quintToCacheEn :: Cache -> ZKey -> Word -> Int -> Int -> Int -> Move -> Int -> PCacheEn
-quintToCacheEn tt zkey gen depth tp score (Move move) nodes = pCE
+quintToCacheEn :: Cache -> ZKey -> Int -> Int -> Int -> Move -> Int -> PCacheEn
+quintToCacheEn tt zkey depth tp score (Move move) nodes = pCE
     where w1 = zkey .&. himask tt .|. fromIntegral ((score .&. 0xFFFF) `shiftL` 2)
                 .|. zkey .&. part3Mask
-          w2 = fromIntegral nodes `shiftL` 32 .|. fromIntegral w2low
+          w2 = fromIntegral nodes `shiftL` 32 .|. gener tt .|. fromIntegral w2low
           w2low :: Word32
-          w2low = (fromIntegral tp `shiftL` 30) .|. (fromIntegral depth `shiftL` 25)
-                .|. (fromIntegral move `shiftL` 6) .|. (fromIntegral gen .&. 0x3F)
+          w2low =   (fromIntegral tp    `shiftL` 30)
+                .|. (fromIntegral depth `shiftL` 25)
+                .|. (fromIntegral move  `shiftL`  6)
           !pCE = PCacheEn { lo = w1, hi = w2 }
 
 cacheEnToQuint :: PCacheEn -> (Int, Int, Int, Move, Int)
@@ -231,8 +239,16 @@ instance Arbitrary Quint where
         no <- arbitrary `suchThat` ( >= 0)
         return $ Q (de, ty, sc, Move mv, no)
 
+{--
+newtype Gener = G Int
+instance Arbitrary Gener where
+     arbitrary = do
+        g <- arbitrary `suchThat` (inRange (0, 256))
+        return $ G g
+--}
+
 prop_Inverse tt zkey gen (Q q@(de, ty, sc, mv, no))
-    = q == cacheEnToQuint (quintToCacheEn tt zkey gen de ty sc mv no)
+    = q == cacheEnToQuint (quintToCacheEn tt zkey de ty sc mv no)
 
 checkProp = do
     tt <- newCache defaultConfig
@@ -244,6 +260,9 @@ checkProp = do
     putStrLn $ "Arbitrary zkey, fixed gen = " ++ show gen
     -- quickCheck $ \z -> prop_Inverse tt z gen
     verboseCheck $ \z -> prop_Inverse tt z gen
+{--
     putStrLn $ "Arbitrary gen, fixed zkey = " ++ show gen
     -- quickCheck $ \g -> prop_Inverse tt zkey g
-    verboseCheck $ \g -> prop_Inverse tt zkey g
+    verboseCheck $ \(G g) -> do let tt' = head $ drop g (iterate newGener tt)
+                                return $ prop_Inverse tt zkey g
+--}

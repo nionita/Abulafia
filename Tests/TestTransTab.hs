@@ -14,7 +14,7 @@ import Config.Config
 
 -- main = mainQC
 -- main = mainBench
-main = mainGen
+main = mainBench
 
 mainQC = checkProp
 
@@ -33,7 +33,7 @@ progMain k g = do
     let zkeys = take k $ makeZKeys rws
         rws  = randoms stdgen
         stdgen = mkStdGen $ fromIntegral g
-    sto ha g zkeys
+    sto ha zkeys
     ret ha zkeys
 
 makeZKeys (a1:a2:as) = makezkey a1 a2 : makeZKeys as
@@ -41,9 +41,9 @@ makeZKeys (a1:a2:as) = makezkey a1 a2 : makeZKeys as
 makezkey :: Int -> Int -> ZKey
 makezkey w1 w2 = fromIntegral w1 `shiftL` 32 .|. fromIntegral w2
 
-sto ha g zkeys = do
+sto ha zkeys = do
     mapM_ wrc zkeys
-    where wrc z = writeCache ha z g (deep z) (typ z) (score z) (best z) (node z)
+    where wrc z = writeCache ha z (deep z) (typ z) (score z) (best z) (node z)
 
 ret ha zkeys = do
     nf <- liftM sum $ mapM rec zkeys

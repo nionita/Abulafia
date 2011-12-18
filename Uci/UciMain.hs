@@ -269,7 +269,8 @@ startWorking tim tpm mtg dpt = do
     ctxLog "Info" $ "Start at " ++ show currms
         ++ " to search: " ++ show tim ++ " / " ++ show tpm ++ " / " ++ show mtg
         ++ " - maximal " ++ show dpt ++ " plys"
-    modifyChanging $ \c -> c { working = True, srchStrtMs = currms }
+    modifyChanging $ \c -> c { working = True, srchStrtMs = currms,
+                               crtStatus = posNewSearch (crtStatus c) }
     ctx <- ask
     tid <- newThread (startSearchThread tim tpm mtg dpt)
     modifyChanging (\c -> c { compThread = Just tid })
