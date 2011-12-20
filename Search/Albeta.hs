@@ -92,8 +92,10 @@ nulSubAct   = True
 
 -- Parameters for internal iterative deepening
 useIID      = True
-minIIDApply = 7
+minIIDApply = 5
 maxIIDDepth = 4
+iidNewDepth = subtract 1
+-- iidNewDepth = `shiftR` 1	-- i.e. div 2
 
 -- Parameter for quiescenst search
 inEndlessCheck, qsDelta :: Int
@@ -897,8 +899,7 @@ bestMoveFromIID nst a b d lastnull
     | ownnt nst == AllNode || d < minIIDApply
                          = return emptySeq
     | otherwise          = pathMoves `liftM` pvSearch nst a b d' emptySeq lastnull
-    -- where d' = min maxIIDDepth (d `div` 2)
-    where d' = d - 3
+    where d' = min maxIIDDepth (iidNewDepth d)
 
 {-# INLINE reportStats #-}
 reportStats :: Node m => Search m ()
