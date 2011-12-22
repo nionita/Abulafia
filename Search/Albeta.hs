@@ -39,8 +39,8 @@ aspTries = 3
 
 -- Some fix search parameter
 depthForCM  = 7 -- from this depth inform current move
-minToStore  = 2 -- minimum remaining depth to store the position in hash
-minToRetr   = 2 -- minimum remaining depth to retrieve
+minToStore  = 1 -- minimum remaining depth to store the position in hash
+minToRetr   = 1 -- minimum remaining depth to retrieve
 maxDepthExt = 3 -- maximum depth extension
 useNegHist  = False	-- when not cutting - negative history
 negHistMNo  = 1		-- how many moves get negative history
@@ -92,7 +92,8 @@ nulSubAct   = True
 
 -- Parameters for internal iterative deepening
 useIID      = True
-minIIDApply = 5
+minIIDPV    = 5
+minIIDCut   = 7
 maxIIDDepth = 4
 iidNewDepth = subtract 1
 -- iidNewDepth = `shiftR` 1	-- i.e. div 2
@@ -193,6 +194,8 @@ combinePath :: Path -> Path -> Path
 combinePath p1 p2 = p1 { pathScore = pathScore p2,
                          pathOrig = "(" ++ pathOrig p1 ++ ") <+> (" ++ pathOrig p2 ++ ")" }
 
+-- Here: the definitions of instances for Eq and Ord for Path are inconsistent!
+-- Because (==) in Eq is not the same as EQ in Ord!!
 instance Eq Path where
     p1 == p2 = pathScore p1 == pathScore p2 && pathDepth p1 == pathDepth p2
 
@@ -387,34 +390,47 @@ pvInnerRootExten b d spec exd nst = do
     tact <- lift tactical
     let reduce = okToReduce tact
         (!d', reduced) = nextDepth (d+exd') (movno nst) reduce (forpv nst && a < b - 1)
+        !pvpath_ = pvcont nst
     -- pindent $ "exd' = " ++ show exd'
-    pvpath' <- if nullSeq $ pvcont nst then bestMoveFromHash else return (pvcont nst)
-    pvpath  <- if useIID && nullSeq pvpath'
-                  then bestMoveFromIID nst (-a-1) (-a) d' nulMoves
-                  else return pvpath'
+    -- We can have and try here as first move (in order of low to high cost):
+    -- 1: a continuation from a previous search (pvcont nst) (eventuell a previous IID)
+    -- 2: one move from hash
+    -- 3: a continuation from a new IID
+    -- 1 and 2 can be empty; then we will try 3 only in PV or Cut nodes, and only for higher d
+    -- But one can be empty only in non PV nodes, or when d=0, and this is too low,
+    -- so we dont bother to call check the other conditions for PV
+    pvpath' <- if nullSeq pvpath_ then bestMoveFromHash else return pvpath_
+    -- when (nullSeq pvpath' && forpv nst) $ lift
+    --                     $ logmes $ "pvpath is null: d=" ++ show d ++ ", ownnt =" ++ show (ownnt nst)
     -- when (d' < d-1) $ pindent $ "d' = " ++ show d'
     -- checkMe a $ "pvInnerRootExten 2:" ++ show a
     if forpv nst
-       then pvSearch nst (-b) (-a) d' pvpath nulMoves
+       then pvSearch nst (-b) (-a) d' pvpath' nulMoves
        else do
            -- no futility pruning for root moves!
            nulWind
            -- lift $ informStr $ "Search with closed window a = " ++ show (-a-1)
            --            ++ " b = " ++ show (-a) ++ " depth " ++ show d'
+           -- Only here we need IID, because previously, in PV, we had pvcont (from previous level)
+           -- and only at depth 0 we have nothing, but then the depth is too low for IID
+           pvpath <- if useIID && nullSeq pvpath'
+                        then bestMoveFromIID nst (-a-1) (-a) d' nulMoves
+                        else return pvpath'
            s1 <- pvSearch nst (-a-1) (-a) d' pvpath nulMoves
            -- -- checkMe s1 "pvInnerRootExten 3"
            if -s1 > a -- we didn't fail low, so we need re-search
               then do
                  reSearch	-- here: node type?
                  -- pindent $ "Research! (" ++ show s1 ++ ")"
-                 pvpath'' <- if useIID then bestMoveFromIID nst (-b) (-a) d' nulMoves else return pvpath
+                 -- Here we need to redescover a best move with open window
+                 -- pvpath'' <- if useIID then bestMoveFromIID nst (-b) (-a) d' nulMoves else return pvpath
                  let nst' = nst { ownnt = PVNode }
                  if reduced && d > 1
                     then do	-- re-search with no reduce for root moves
                       -- let d''= fst $! nextDepth (d+exd') (draft old) (movno nst) False (forpv nst)
                       let d''= fst $! nextDepth (d+exd') (movno nst) False True
-                      pvSearch nst' (-b) (-a) d'' pvpath'' nulMoves
-                    else pvSearch nst' (-b) (-a) d' pvpath'' nulMoves
+                      pvSearch nst' (-b) (-a) d'' pvpath nulMoves
+                    else pvSearch nst' (-b) (-a) d' pvpath nulMoves
               else return s1
     where !inPv = ownnt nst == PVNode
           a = cursc nst
@@ -646,23 +662,18 @@ pvInnerLoopExten b d spec exd nst = do
         !reduce = okToReduce tact
         !de = d + exd'
         (!d', reduced) = nextDepth de mn reduce (forpv nst && a < b - 1)
+        !pvpath_ = pvcont nst
     -- checkMe a "pvInnerLoopExten 2"
     if forpv nst
        then do
-          pvpath <- if useIID && nullSeq (pvcont nst) then bestMoveFromHash else return (pvcont nst)
+          pvpath <- if nullSeq pvpath_ then bestMoveFromHash else return pvpath_
           pvSearch nst (-b) (-a) d' pvpath nulMoves
        else do
           (hdeep, tp, hscore, e', nodes)
               <- if d >= minToRetr
                     then reTrieve >> lift retrieve
                     else return (-1, 0, 0, undefined, 0)
-          -- let pvpath = if null lastpath
-          --           then if hdeep > 0 && tp > 0 then [e'] else []
-          --           else lastpath
-          let pvpath' = if hdeep > 0 && tp > 0 then Seq [e'] else (pvcont nst)
-          --1-- let !pvpath = if hdeep > 0 && tp > 0 then Seq [] else (pvcont nst)
-              -- !hs = nextlev hscore
-              ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'],
+          let ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'],
                               pathOrig = "TT" }
               --2-- ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [] }
               hs = - ttpath
@@ -680,6 +691,12 @@ pvInnerLoopExten b d spec exd nst = do
                     then return v	-- we will fail low or high
                     else do
                        nulWind
+                       -- let pvpath = if null lastpath
+                       --           then if hdeep > 0 && tp > 0 then [e'] else []
+                       --           else lastpath
+                       -- let pvpath' = if hdeep > 0 && tp > 0 then Seq [e'] else pvpath_
+                       let pvpath' = if nullSeq pvpath_ && hdeep > 0 && tp > 0 then Seq [e'] else pvpath_
+                       --1-- let !pvpath = if hdeep > 0 && tp > 0 then Seq [] else (pvcont nst)
                        pvpath <- if useIID && nullSeq pvpath'
                                     then bestMoveFromIID nst (-a-1) (-a) d' nulMoves
                                     else return pvpath'
@@ -688,14 +705,16 @@ pvInnerLoopExten b d spec exd nst = do
                        if -s1 > a -- we need re-search
                           then do
                             reSearch
-                            -- here: next node type?
-                            pvpath'' <- if useIID then bestMoveFromIID nst (-b) (-a) d' nulMoves else return pvpath
+                            -- pvpath'' <- if useIID then bestMoveFromIID nst (-b) (-a) d' nulMoves else return pvpath
+                            -- pvpath'' <- if useIID && nullSeq pvpath'
+                            --                then bestMoveFromIID nst (-b) (-a) d' nulMoves
+                            --                else return pvpath'
                             let nst' = nst { ownnt = PVNode }
                             if reduced && d >= lmrMinDFRes
                                then do	-- re-search with no reduce is expensive!
                                   let !d'' = fst $ nextDepth (d+exd') mn False (ownnt nst == PVNode)
-                                  pvSearch nst' (-b) (-a) d'' pvpath'' nulMoves
-                               else pvSearch nst' (-b) (-a) d' pvpath'' nulMoves
+                                  pvSearch nst' (-b) (-a) d'' pvpath nulMoves
+                               else pvSearch nst' (-b) (-a) d' pvpath nulMoves
                           else return s1
     where !inPv = ownnt nst == PVNode
           a = cursc nst
@@ -896,10 +915,12 @@ bestMoveFromHash = do
 {-# INLINE bestMoveFromIID #-}
 bestMoveFromIID :: Node m => NodeState -> Path -> Path -> Int -> Int -> Search m (Seq Move)
 bestMoveFromIID nst a b d lastnull
-    | ownnt nst == AllNode || d < minIIDApply
-                         = return emptySeq
-    | otherwise          = pathMoves `liftM` pvSearch nst a b d' emptySeq lastnull
+    | nt == PVNode  && d >= minIIDPV ||
+      nt == CutNode && d >= minIIDCut
+                = pathMoves `liftM` pvSearch nst a b d' emptySeq lastnull
+    | otherwise = return emptySeq
     where d' = min maxIIDDepth (iidNewDepth d)
+          nt = ownnt nst
 
 {-# INLINE reportStats #-}
 reportStats :: Node m => Search m ()

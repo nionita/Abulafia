@@ -402,7 +402,7 @@ progVersion = "0.60"
 progVerSuff = " iid"
 
 -- These are the possible answers from engine to GUI:
-idName = "id name AbaAba " ++ progVersion ++ progVerSuff
+idName = "id name Abulafia " ++ progVersion ++ progVerSuff
 idAuthor = "id author Nicu Ionita"
 uciOk = "uciok"
 
