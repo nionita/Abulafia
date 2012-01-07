@@ -47,11 +47,11 @@ Flag Profile
   Default:	False
 
 Executable PlotEvolve
-  Main-is:	Main\EvolveToPlot.hs
+  Main-is:	Main/EvolveToPlot.hs
   Build-depends:	base >= 4, filepath, regex-compat
 
 Executable FixPlayFen
-  Main-is:	Main\MainFixPlayFen.hs
+  Main-is:	Main/MainFixPlayFen.hs
   Build-depends: base >= 4, array, mtl, parsec, transformers
   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
                -funfolding-use-threshold=32
@@ -60,32 +60,32 @@ Executable FixPlayFen
     GHC-Options: -auto-all
 
 -- Executable BenchFixPlayFen
---   Main-is:	Tests\TestFixPlayFen.hs
+--   Main-is:	Tests/TestFixPlayFen.hs
 --   Build-depends:	base >= 4, array, mtl, parsec, criterion
 --   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4 -funfolding-use-threshold=32
 
 Executable BenchTransTab
-  Main-is:	Tests\TestTransTab.hs
+  Main-is:	Tests/TestTransTab.hs
   Build-depends:	base >= 4, array, mtl, parsec, criterion, QuickCheck
   GHC-Options: -O2 -funbox-strict-fields -fspec-constr-count=4 -funfolding-use-threshold=32
 
 Executable Evolve
-  Main-is:	Main\MainEvolve.hs
+  Main-is:	Main/MainEvolve.hs
   Build-depends: base >= 4, process, filepath, bytestring, old-locale
   GHC-Options:	-O2 -threaded -rtsopts
 
 Executable Abulafia
-  Main-is:	Main\MainAbulafia.hs
+  Main-is:	Main/MainAbulafia.hs
   Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
                  random, stream-fusion, directory, transformers
   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
                -funfolding-use-threshold=32
   if flag(profile)
-    C-sources: Cbits\rts_hooksp.c
+    C-sources: Cbits/rts_hooksp.c
     GHC-Options: -auto-all
     -- GHC-Options: -auto-all -with-rtsopts="-p -hc -smemop.txt"
   else
-    C-sources: Cbits\rts_hooks.c
+    C-sources: Cbits/rts_hooks.c
     -- GHC-Options: -with-rtsopts="-N2 -smemuse.txt -M2048m -H1024m"
 
 -- Executable LearnSTS
@@ -107,20 +107,20 @@ Executable Abulafia
 --   Main-is:             Tests/GenFeatVects.hs
 --   Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random, stream-fusion, bytestring
 --   GHC-Options: -O2 -funbox-strict-fields
---   -- C-sources: Cbits\rts_hooks.c
+--   -- C-sources: Cbits/rts_hooks.c
 -- 
 -- Executable Moves
 --   Main-is:             Tests/Moves.hs
 --   Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random, stream-fusion
 --   GHC-Options: -O2 -funbox-strict-fields
-  -- C-sources: Cbits\rts_hooks.c
+  -- C-sources: Cbits/rts_hooks.c
 
 -- Executable Explore
 --   Main-is:             Tests/Explore.hs
 --   Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random,
 --                        stream-fusion, MonadPrompt
 --   GHC-Options: -O2 -funbox-strict-fields -threaded -fvia-C -optc-O3
-  -- C-sources: Cbits\rts_hooks.c
+  -- C-sources: Cbits/rts_hooks.c
 
 -- Executable Perft
 --    Main-is:             Main/Perft.hs
