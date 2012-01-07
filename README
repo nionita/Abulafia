@@ -1,0 +1,13 @@
+This is an UCI chess engine written in Haskell.
+
+Currently it is very weak (compared to other engines; but for a human opponent it could be
+still interesting! I can't beat it, and I'm about 1800 Elo).
+
+It has one big known bug - it doe not handle en-passant captures. This will be corrected
+soon. Also for short time controls sometimes is losing by time.
+
+In order to build it you will need the Haskell Platform (at least 2011.2) as well as some
+Hackage packages (see Abulafia.cabal). Both Windows and Linux platforms possible (probably also Mac, but I did not test it).
+
+In order to use it, you will need a UCI GUI. You can use Arena (www.playwitharena.com)
+or WinBoard/XBoard.

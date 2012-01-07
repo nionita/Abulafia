@@ -1,0 +1,4 @@
+Todo list for Abulafia:
+- SEE should be used only in QS to prune losing moves
+- Statistics for search should be activated only when "debugging" (cpp + ifdef)
+- Move list module for better performance (memory cache)
