@@ -115,8 +115,8 @@ posNewSearch p = p { hash = newGener (hash p) }
 
 debugGen = False
 
-useCaptWL   = True
-loosingLast = True
+captWLDepth = 6
+loosingLast = False
 
 genMoves :: CtxMon m => Int -> Int -> Bool -> Game r m ([Move], [Move])
 genMoves depth absdp pv = do
@@ -140,12 +140,11 @@ genMoves depth absdp pv = do
                      -- then sortMovesFromHash l3'
                      then sortMovesFromHist absdp l3'
                      else return l3'
-            return $! if useCaptWL
+            return $! if pv || depth >= captWLDepth
                         then if loosingLast
                                 then (l1 ++ l2w, l0 ++ l3 ++ l2l)
                                 else (l1 ++ l2w ++ l2l, l0 ++ l3)
                         else (l1 ++ l2, l0 ++ l3)
-            -- return (l1 ++ l2, l0 ++ l3)
 
 onlyWinningCapts = True
 
