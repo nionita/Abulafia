@@ -115,8 +115,8 @@ posNewSearch p = p { hash = newGener (hash p) }
 
 debugGen = False
 
-useCaptWL = False
-loosingLast = False
+useCaptWL   = True
+loosingLast = True
 
 genMoves :: CtxMon m => Int -> Int -> Bool -> Game r m ([Move], [Move])
 genMoves depth absdp pv = do
@@ -140,12 +140,12 @@ genMoves depth absdp pv = do
                      -- then sortMovesFromHash l3'
                      then sortMovesFromHist absdp l3'
                      else return l3'
-            -- return $! if useCaptWL
-            --             then if loosingLast
-            --                     then concat [l1, l2w, l0, l3, l2l]
-            --                     else concat [l1, l2w, l2l, l0, l3]
-            --             else (l1 ++ l2 ++ l0, l3)
-            return (l1 ++ l2, l0 ++ l3)
+            return $! if useCaptWL
+                        then if loosingLast
+                                then (l1 ++ l2w, l0 ++ l3 ++ l2l)
+                                else (l1 ++ l2w ++ l2l, l0 ++ l3)
+                        else (l1 ++ l2, l0 ++ l3)
+            -- return (l1 ++ l2, l0 ++ l3)
 
 onlyWinningCapts = True
 
@@ -159,6 +159,7 @@ genTactMoves = do
         lnc = map (genmv True p) $ genMoveNCaptToCheck p c
         (pl2, _) = genMoveCaptWL p c
         l2w = map (genmv True p) pl2
+        -- l2w = map (genmv True p) $ genMoveCaptSEE p c
         lc = map (genmv True p) $ genMoveFCheck p c
         -- the non capturing check moves have to be at the end (tested!)
         -- else if onlyWinningCapts then l1 ++ l2w ++ lnc else l1 ++ l2 ++ lnc
