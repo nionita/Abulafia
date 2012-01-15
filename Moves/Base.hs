@@ -115,7 +115,7 @@ posNewSearch p = p { hash = newGener (hash p) }
 
 debugGen = False
 
-captWLDepth = 6
+captWLDepth = 5		-- so far 5 seems to be best (after ~100 games)
 loosingLast = False
 
 genMoves :: CtxMon m => Int -> Int -> Bool -> Game r m ([Move], [Move])

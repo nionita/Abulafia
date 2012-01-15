@@ -399,7 +399,7 @@ answer s = do
 
 -- Version and suffix:
 progVersion = "0.60"
-progVerSuff = " wl6"
+progVerSuff = " wl5"
 
 -- These are the possible answers from engine to GUI:
 idName = "id name Abulafia " ++ progVersion ++ progVerSuff
