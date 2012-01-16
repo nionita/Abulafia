@@ -26,6 +26,7 @@ import Config.Config
 -- Here we work in the old plain IO monad:
 instance CtxMon IO where
     tellCtx = tellInIO
+    timeCtx = return 0
 
 main = do
     args <- getArgs
@@ -69,7 +70,8 @@ bestMoveCont tiefe stati lastsc lpv rmvs = do
                 rootmvs   = rmvs,
                 window    = aspirWindow,
                 learnev   = False,
-                best      = True
+                best      = True,
+                stoptime  = 0
                 }
     ((sc, path, rmvsf), statf) <- runSearch (alphaBeta abc) stati
     when (sc == 0) $ return ()

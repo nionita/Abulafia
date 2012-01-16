@@ -243,14 +243,16 @@ getTimeParams cs lastsc c
           mtg = fromMaybe 0 $ findMovesToGo cs
 
 compTime tim tpm fixmtg lastsc
-    = if tpm == 0 && tim == 0 then 0 else ctm
+    = if tpm == 0 && tim == 0 then (0, 0) else (ctm, tmx)
     where ctn = tpm + tim `div` mtg
           ctm = if tim > 0 && tim < 8000 || tim == 0 && tpm < 1500 then 200 else ctn
           mtg = if fixmtg > 0 then fixmtg else estimateMovesToGo lastsc
           -- tmx = (if tim == 0 then tpm else tim) - 200
+          rtim = max 0 $ tim - ctm	-- rest time after this move
+          tmx  = ctm + rtim `div` 2	-- we abort when we consume half of the rest time
 
 estMvsToGo :: Array Int Int
-estMvsToGo = listArray (0, 8) [30, 28, 24, 18, 12, 10, 8, 6, 2]
+estMvsToGo = listArray (0, 8) [30, 28, 24, 18, 12, 10, 8, 6, 3]
 
 estimateMovesToGo sc = estMvsToGo ! mvidx
     where mvidx = min 8 $ abs sc `div` 100
@@ -279,7 +281,7 @@ startWorking tim tpm mtg dpt = do
 startSearchThread :: Int -> Int -> Int -> Int -> CtxIO ()
 startSearchThread tim tpm mtg dpt = do
     fd <- getIParamDef "firstDepth" 1
-    ctxCatch (searchTheTree fd dpt tim tpm mtg Nothing [] [])
+    ctxCatch (searchTheTree fd dpt 0 tim tpm mtg Nothing [] [])
         $ \e -> do
             let mes = "searchTheTree terminated by exception: " ++ show e
             ctxLog "Error" mes
@@ -304,15 +306,15 @@ internalStop ms = do
 betterSc = 25
 
 -- Search with the given depth
-searchTheTree :: Int -> Int -> Int -> Int -> Int -> Maybe Int -> [Move] -> [Move] -> CtxIO ()
-searchTheTree tief mtief tim tpm mtg lsc lpv rmvs = do
+searchTheTree :: Int -> Int -> Int -> Int -> Int -> Int -> Maybe Int -> [Move] -> [Move] -> CtxIO ()
+searchTheTree tief mtief timx tim tpm mtg lsc lpv rmvs = do
     chg <- readChanging
-    (path, sc, rmvsf, stfin) <- bestMoveCont tief (crtStatus chg) lsc lpv rmvs
+    (path, sc, rmvsf, stfin) <- bestMoveCont tief timx (crtStatus chg) lsc lpv rmvs
     case length path of _ -> return () -- because of lazyness!
     storeBestMove path sc	-- write back in status
     modifyChanging (\c -> c { crtStatus = stfin })
     currms <- currMilli
-    let ms' = compTime tim tpm mtg sc
+    let (ms', mx) = compTime tim tpm mtg sc
         ms  = if sc > betterSc
                  then ms' * 4 `div` 5
                  else if sc < -betterSc
@@ -327,20 +329,24 @@ searchTheTree tief mtief tim tpm mtg lsc lpv rmvs = do
         mes = "Depth " ++ show tief ++ " Score " ++ show sc ++ " in ms "
                 ++ show currms ++ " remaining " ++ show delta
                 ++ " path " ++ show path
+    -- answer $ infos $ "currms = " ++ show currms
+    -- answer $ infos $ "ms     = " ++ show ms
+    -- answer $ infos $ "mx     = " ++ show mx
+    -- answer $ infos $ "cr+mx  = " ++ show (currms + mx)
     ctxLog "Info" mes
     -- if ms > 0 && (delta <= 0 || tief >= mtief)  -- time is over or maximal depth
     if depthmax || timeover || onlyone
         then do
-            answer $ infos $ "End of search"
-            answer $ infos $ "depthmax = " ++ show depthmax
-            answer $ infos $ "timeover = " ++ show timeover
-            answer $ infos $ "onlyone = " ++ show onlyone
+            -- answer $ infos $ "End of search"
+            -- answer $ infos $ "depthmax = " ++ show depthmax
+            -- answer $ infos $ "timeover = " ++ show timeover
+            -- answer $ infos $ "onlyone = " ++ show onlyone
             when depthmax $ ctxLog "Info" "in searchTheTree: max depth reached"
             giveBestMove path
         else do
             chg <- readChanging
             if working chg
-                then searchTheTree (tief + 1) mtief tim tpm mtg (Just sc) path rmvsf
+                then searchTheTree (tief + 1) mtief (currms + mx) tim tpm mtg (Just sc) path rmvsf
                 else do
                     ctxLog "Info" "in searchTheTree: not working"
                     giveBestMove path -- was stopped

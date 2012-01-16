@@ -9,10 +9,12 @@ module Search.Albeta (
 ) where
 
 import Control.Monad
+import Data.Bits ((.&.))
 import Data.List (delete, sortBy)
 import Data.Ord (comparing)
 import Data.Array.Base
 import Data.Array.Unboxed
+import Data.Maybe (fromMaybe)
 
 import Search.SearchMonad
 import Search.AlbetaTypes
@@ -38,6 +40,7 @@ aspTries = 3
 -- a33 = 100, 20, 4	-> elo   0 +- 58
 
 -- Some fix search parameter
+timeNodes   = 1024 - 1	-- check time every so many nodes
 depthForCM  = 7 -- from this depth inform current move
 minToStore  = 1 -- minimum remaining depth to store the position in hash
 minToRetr   = 1 -- minimum remaining depth to retrieve
@@ -122,7 +125,9 @@ data Killer = NoKiller | OneKiller Move Int | TwoKillers Move Int Move Int
 data PVReadOnly
     = PVReadOnly {
           school :: !Bool,	-- running in learning mode
-          albest :: !Bool	-- always choose the best move (i.e. first)
+          albest :: !Bool,	-- always choose the best move (i.e. first)
+          timeli :: !Bool,	-- do we have time limit?
+          abmili :: !Int	-- abort when after this milisecond
     } deriving Show
 
 data PVState
@@ -131,6 +136,7 @@ data PVState
           draft :: !Int,	-- root search depth
           absdp :: !Int,	-- absolute depth (root = 0)
           usedext :: !Int,	-- used extension
+          abort :: !Bool,	-- search aborted (time)
           stats :: SStats	-- search statistics
       } deriving Show
 
@@ -229,12 +235,13 @@ nullSeq (Seq es) = null es
 emptySeq :: Seq Move
 emptySeq = Seq []
 
-pvsInit = PVState { ronly = pvro00, draft = 0, absdp = 0, usedext = 0, stats = stt0 }
+pvsInit = PVState { ronly = pvro00, draft = 0, absdp = 0,
+                    usedext = 0, abort = False, stats = stt0 }
 nst0 :: NodeState
 nst0 = NSt { ownnt = PVNode, forpv = True, cursc = 0, movno = 1, weak = True,
              killer = NoKiller, pvsl = [], pvcont = emptySeq }
 stt0 = SStats { sNodes = 0, sNodesQS = 0, sRetr = 0, sRSuc = 0 }
-pvro00 = PVReadOnly { school = False, albest = False }
+pvro00 = PVReadOnly { school = False, albest = False, timeli = False, abmili = 0 }
 
 alphaBeta :: Node m => ABControl -> m (Int, [Move], [Move])
 alphaBeta abc = {-# SCC "alphaBeta" #-} do
@@ -245,7 +252,8 @@ alphaBeta abc = {-# SCC "alphaBeta" #-} do
         searchLow       b = pvRootSearch alpha0 b     d lpv rmvs True
         searchHigh    a   = pvRootSearch a      beta0 d lpv rmvs True
         searchFull        = pvRootSearch alpha0 beta0 d lpv rmvs False	-- ???
-        pvro = PVReadOnly { school = learnev abc, albest = best abc }
+        pvro = PVReadOnly { school = learnev abc, albest = best abc,
+                            timeli = stoptime abc /= 0, abmili = stoptime abc }
         -- pvs0 = if learnev abc then pvsInit { ronly = pvro1 } else pvsInit
         pvs0 = pvsInit { ronly = pvro } :: PVState
     r <- if useAspirWin
@@ -257,20 +265,19 @@ alphaBeta abc = {-# SCC "alphaBeta" #-} do
                 --                ++ " alpha = " ++ show alpha1
                 --                ++ " beta = " ++ show beta1
                 -- aspirWin alpha1 beta1 d lpv rmvs aspTries
-                r1@(s1, es1, _) <- {-# SCC "alphaBetaSearchReduced" #-}
-                                   liftM fst $ runSearch (searchReduced alpha1 beta1) pvs0
-                if s1 > alpha1 && s1 < beta1 && not (nullSeq es1)
-                -- if s1 > alpha1 && not (nullSeq es1)
+                r1@((s1, es1, _), pvsf)
+                    <- {-# SCC "alphaBetaSearchReduced" #-}
+                         runSearch (searchReduced alpha1 beta1) pvs0
+                if abort pvsf || (s1 > alpha1 && s1 < beta1 && not (nullSeq es1))
                     then return r1
-                    else do
-                        -- informStr $ "+++ Redo search with d = " ++ show d
-                        --        ++ " after s1 = " ++ show s1
-                        {-# SCC "alphaBetaSearchFullRe" #-} liftM fst $ runSearch searchFull pvs0
-             Nothing -> do
-                -- informStr $ "+++ Full search with d = " ++ show d
-                {-# SCC "alphaBetaSearchFullIn" #-} liftM fst $ runSearch searchFull pvs0
-         else {-# SCC "alphaBetaSearchFull" #-} liftM fst $ runSearch searchFull pvs0
-    return $! case r of (s, Seq path, Alt rmvs) -> (s, path, rmvs)
+                    else {-# SCC "alphaBetaSearchFullRe" #-} runSearch searchFull pvs0
+             Nothing -> {-# SCC "alphaBetaSearchFullIn" #-} runSearch searchFull pvs0
+         else {-# SCC "alphaBetaSearchFull" #-} runSearch searchFull pvs0
+    -- when aborted, return the last found good move
+    -- we have to trust that abort is never done in draft 1!
+    if abort (snd r)
+       then return (fromMaybe 0 $ lastscore abc, lastpv abc, [])
+       else return $! case fst r of (s, Seq path, Alt rmvs) -> (s, path, rmvs)
 
 aspirWin :: Node m => Int -> Int -> Int -> Seq Move -> Alt Move -> Int -> m (Int, Seq Move, Alt Move)
 aspirWin _ _ d lpv rmvs 0 = liftM fst $ runSearch (pvRootSearch alpha0 beta0 d lpv rmvs True) pvsInit
@@ -306,7 +313,8 @@ pvRootSearch a b d lastpath rmvs aspir = do
     let !pvc  = if nullSeq lastpath then lastpath else Seq $ tail $ unseq lastpath
         !nsti = nst0 { cursc = pathFromScore "Alpha" a, pvcont = pvc }
     nstf <- pvLoop (pvInnerRoot (pathFromScore "Beta" b) d) nsti edges
-    rsr <- if weak nstf		-- failed low
+    abrt <- gets abort
+    rsr <- if abrt || weak nstf		-- aborted or failed low
               then do
                 when (not aspir) $ do
                      s <- get
@@ -363,20 +371,26 @@ pvInnerRoot b d nst e = do
     -- do the move
     exd <- {-# SCC "newNode" #-} lift $ doEdge e False
     newNode
-    modify $ \s -> s { absdp = absdp s + 1 }
-    s <- case exd of
-             Exten exd' -> pvInnerRootExten b d (special e) exd' nst
-             Final sco  -> return $! pathFromScore "Final" sco
-    -- checkMe s "pvInnerRoot 2"
-    -- undo the move
-    lift $ undoEdge e
-    modify $ \s -> s { absdp = absdp old, usedext = usedext old }
-    let s' = addToPath e (pnextlev s)
-    -- -- checkMe s' "pvInnerRoot 3"
-    -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
-    -- lift $ informStr $ "<- " ++ show e ++ " (" ++ show (pathScore s)
-    --                                 ++ " /// " ++ show (pathScore s') ++ ")"
-    checkFailOrPVRoot (stats old) b d e s' nst
+    abrt <- timeToAbort
+    if abrt
+       then do
+           lift $ undoEdge e
+           return (True, nst)
+       else do
+           modify $ \s -> s { absdp = absdp s + 1 }
+           s <- case exd of
+                    Exten exd' -> pvInnerRootExten b d (special e) exd' nst
+                    Final sco  -> return $! pathFromScore "Final" sco
+           -- checkMe s "pvInnerRoot 2"
+           -- undo the move
+           lift $ undoEdge e
+           modify $ \s -> s { absdp = absdp old, usedext = usedext old }
+           let s' = addToPath e (pnextlev s)
+           -- -- checkMe s' "pvInnerRoot 3"
+           -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+           -- lift $ informStr $ "<- " ++ show e ++ " (" ++ show (pathScore s)
+           --                                 ++ " /// " ++ show (pathScore s') ++ ")"
+           checkFailOrPVRoot (stats old) b d e s' nst
 
 pvInnerRootExten :: Node m => Path -> Int -> Bool -> Int -> NodeState -> Search m Path
 pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
@@ -415,7 +429,8 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
                         else {-# SCC "firstFromC&HRoot" #-} return pvpath'
            s1 <- pvSearch nst (-a-1) (-a) d' pvpath nulMoves
            -- -- checkMe s1 "pvInnerRootExten 3"
-           if -s1 > a -- we didn't fail low, so we need re-search
+           abrt <- gets abort
+           if not abrt && -s1 > a -- we didn't fail low, so we need re-search
               then {-# SCC "nullWinResRoot" #-} do
                  -- pindent $ "Research! (" ++ show s1 ++ ")"
                  -- Here we need to redescover a best move with open window
@@ -573,7 +588,8 @@ pvSearch nst !a !b !d lastpath lastnull = do
     -- checkMe a "pvSearch 3"
     -- checkMe b "pvSearch 4"
     nmfail <- nullEdgeFailsHigh nst b d lastnull
-    if nmfail
+    abrt <- gets abort
+    if abrt || nmfail
        -- then pindent ("<= " ++ show b) >> return (onlyScore b)
        then return $! onlyScore b
        else do
@@ -584,14 +600,13 @@ pvSearch nst !a !b !d lastpath lastnull = do
                   -- pindent ("<= " ++ show v)
                   return $! pathFromScore ("static: " ++ show v) v
              else do
-                  -- nodes0 <- gets stats >>= return . sNodes
                   nodes0 <- gets (sNodes . stats)
                   -- Loop thru the moves
                   let !pvpath = if nullSeq lastpath then emptySeq else Seq $ tail $ unseq lastpath
                       !nsti = nst0 { ownnt = deepNodeType (ownnt nst), cursc = a, pvcont = pvpath }
                   nstf <- pvLoop (pvInnerLoop b d) nsti edges
-                  nodes1 <- gets (sNodes . stats)
-                  s <- if weak nstf
+                  abrt <- gets abort
+                  s <- if not abrt && weak nstf
                           then do
                               inschool <- gets $ school . ronly
                               -- when inschool $ do
@@ -600,6 +615,7 @@ pvSearch nst !a !b !d lastpath lastnull = do
                               let s = cursc nstf
                                   de = pathDepth s
                               when (de >= minToStore) $ do
+                                  nodes1 <- gets (sNodes . stats)
                                   let typ = 0
                                       !deltan = nodes1 - nodes0
                                   -- store as upper score - move does not matter - tricky here!
@@ -646,17 +662,23 @@ pvInnerLoop b d nst e = do
     -- pindent $ "-> " ++ show e
     exd <- {-# SCC "newNode" #-} lift $ doEdge e False	-- do the move
     newNode
-    modify $ \s -> s { absdp = absdp s + 1 }
-    s <- case exd of
-             Exten exd' -> pvInnerLoopExten b d (special e) exd' nst
-             Final sco  -> return $! pathFromScore "Final" sco
-    -- checkMe s "pvInnerLoop 2"
-    lift $ undoEdge e	-- undo the move
-    modify $ \s -> s { absdp = absdp old, usedext = usedext old }
-    let s' = addToPath e (pnextlev s)
-    -- -- checkMe s' "pvInnerLoop 3"
-    -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
-    checkFailOrPVLoop (stats old) b d e s' nst
+    abrt <- timeToAbort
+    if abrt
+       then do
+           lift $ undoEdge e	-- undo the move
+           return (True, nst)
+       else do
+           modify $ \s -> s { absdp = absdp s + 1 }
+           s <- case exd of
+                    Exten exd' -> pvInnerLoopExten b d (special e) exd' nst
+                    Final sco  -> return $! pathFromScore "Final" sco
+           -- checkMe s "pvInnerLoop 2"
+           lift $ undoEdge e	-- undo the move
+           modify $ \s -> s { absdp = absdp old, usedext = usedext old }
+           let s' = addToPath e (pnextlev s)
+           -- -- checkMe s' "pvInnerLoop 3"
+           -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+           checkFailOrPVLoop (stats old) b d e s' nst
 
 reserveExtension !uex !exd = do
     if uex >= maxDepthExt || exd == 0
@@ -715,8 +737,9 @@ pvInnerLoopExten b d spec exd nst = do
                                     then bestMoveFromIID nst (-a-1) (-a) d' nulMoves
                                     else return pvpath'
                        !s1 <- pvSearch nst (-a-1) (-a) d' pvpath nulMoves
+                       abrt <- gets abort
                        -- -- checkMe s1 "pvInnerLoopExten 4"
-                       if -s1 > a -- we need re-search
+                       if not abrt && -s1 > a -- we need re-search
                           then do
                             -- pvpath'' <- if useIID then bestMoveFromIID nst (-b) (-a) d' nulMoves else return pvpath
                             -- pvpath'' <- if useIID && nullSeq pvpath'
@@ -902,18 +925,25 @@ pvQInnerLoop b c a e = do
     -- qindent $ "-> " ++ show e
     r <- {-# SCC "newNodeQS" #-} lift $ doEdge e True
     newNodeQS
-    modify $ \s -> s { absdp = absdp s + 1 }
-    s <- liftM nextlev $ case r of
-            Final s -> return s
-            _       -> pvQSearch (-b) (-a) c
-    lift $ undoEdge e
-    modify $ \s -> s { absdp = absdp s - 1 }	-- don't care about usedext here
-    -- qindent $ "<- " ++ show e ++ " (" ++ show s ++ ")"
-    if s >= b
-       then return (True, b)
-       else if s > a
-               then return (False, s)
-               else return (False, a)
+    abrt <- timeToAbort
+    if abrt
+       then do
+           lift $ undoEdge e
+           return (True, 0)
+       else do
+           modify $ \s -> s { absdp = absdp s + 1 }
+           s <- liftM nextlev $ case r of
+                   Final s -> return s
+                   _       -> pvQSearch (-b) (-a) c
+           lift $ undoEdge e
+           modify $ \s -> s { absdp = absdp s - 1 }	-- don't care about usedext here
+           -- qindent $ "<- " ++ show e ++ " (" ++ show s ++ ")"
+           abrt <- gets abort
+           if abrt || s >= b
+              then return (True, b)
+              else if s > a
+                      then return (False, s)
+                      else return (False, a)
 
 bestMoveFromHash :: Node m => Search m (Seq Move)
 bestMoveFromHash = do
@@ -933,6 +963,24 @@ bestMoveFromIID nst a b d lastnull
     | otherwise = {-# SCC "iidExecutedNo"  #-} return emptySeq
     where d' = min maxIIDDepth (iidNewDepth d)
           nt = ownnt nst
+
+{-# INLINE timeToAbort #-}
+timeToAbort :: Node m => Search m Bool
+timeToAbort = do
+    s <- get
+    let ro = ronly s
+    if draft s == 1 || not (timeli ro)
+       then return False
+       else if timeNodes .&. (sNodes $ stats s) /= 0
+               then return False
+               else do
+                   abrt <- lift $ timeout $ abmili ro
+                   if not abrt
+                      then return False
+                      else do
+                          lift $ informStr "Albeta: search abort!"
+                          modify $ \s -> s { abort = True }
+                          return True
 
 {-# INLINE reportStats #-}
 reportStats :: Node m => Search m ()

@@ -98,7 +98,7 @@ currentSecs = do
     TOD s _ <- getClockTime
     return s
 
--- Aktuelle Zeit in ms (seit Programmstart)
+-- Current time in ms (since program start)
 currMilli :: CtxIO Int
 currMilli = do
     TOD s ps   <- liftIO getClockTime

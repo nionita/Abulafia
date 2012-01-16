@@ -17,14 +17,15 @@ import Eval.Eval
 
 instance CtxMon CtxIO where
     tellCtx = talkToContext
+    timeCtx = currMilli
 
 -- Parameter of the search at this level:
 aspirWindow   = 24	-- initial aspiration window
 showEvalStats = False	-- show eval statistics in logfile
 
 -- One iteration in the search for the best move
-bestMoveCont :: Int -> MyState -> Maybe Int -> [Move] -> [Move] -> CtxIO IterResult
-bestMoveCont tiefe stati lastsc lpv rmvs = do
+bestMoveCont :: Int -> Int -> MyState -> Maybe Int -> [Move] -> [Move] -> CtxIO IterResult
+bestMoveCont tiefe sttime stati lastsc lpv rmvs = do
     -- ctx <- ask
     informGuiDepth tiefe
     ctxLog "Info" $ "start search for depth " ++ show tiefe
@@ -35,11 +36,10 @@ bestMoveCont tiefe stati lastsc lpv rmvs = do
                 rootmvs   = rmvs,
                 window    = aspirWindow,
                 learnev   = learnEval,
-                best      = False
+                best      = False,
+                stoptime  = sttime
                 }
-    -- ((sc, path, rmvsf), statf) <- runStateT (alphaBeta abc) stati
     ((sc, path, rmvsf), statf) <- SM.runSearch (alphaBeta abc) stati
-    -- case sc of _ -> return ()
     when (sc == 0) $ return ()
     let n = nodes . stats $ statf
     informGui sc tiefe n path

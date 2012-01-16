@@ -75,6 +75,7 @@ instance CtxMon m => Node (Game r m) where
     curNodes = getNodes
     inform = SM.lift . tellCtx
     choose  = choose0
+    timeout = isTimeout
 
 -- Some options and parameters:
 debug       = False
@@ -414,3 +415,8 @@ choose0 _    pvs = case pvs of
 
 logMes :: CtxMon m => String -> Game r m ()
 logMes s = SM.lift $ tellCtx . LogMes $ s
+
+isTimeout :: CtxMon m => Int -> Game r m Bool
+isTimeout msx = do
+    curr <- SM.lift timeCtx
+    return $! msx < curr

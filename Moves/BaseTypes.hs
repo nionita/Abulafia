@@ -21,3 +21,4 @@ type Game r m = SM.STPlus r MyState m
 
 class (Monad m, MonadIO m) => CtxMon m where
     tellCtx :: Comm -> m ()
+    timeCtx :: m Int
