@@ -82,7 +82,7 @@ Executable Abulafia
                -funfolding-use-threshold=32
   if flag(profile)
     C-sources: Cbits/rts_hooksp.c
-    GHC-Options: -auto-all
+    -- GHC-Options: -auto-all
     -- GHC-Options: -auto-all -with-rtsopts="-p -hc -smemop.txt"
   else
     C-sources: Cbits/rts_hooks.c

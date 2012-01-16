@@ -349,7 +349,6 @@ currDSP = if not useHash then return empRez else do
     -- when debug $ lift $ ctxLog "Debug" $ "--> currDSP "
     s <- get
     p <- getPos
-    -- mhr <- liftIO $ readCache (hash s) (basicPos p)
     mhr <- liftIO $ readCache (hash s) (zobkey p)
     -- let (r, sc) = case mhr of
                -- Just t@(_, _, sco, _, _) -> (t, sco)
