@@ -11,7 +11,7 @@ defIParams :: M.Map String Int
 defIParams = M.fromList [
     ("logLevel", 0),            -- log level (what else?)
     -- ("ttSize", 10 * 1000 * 1000),    -- no of entries in the transposition table
-    ("ttSize", 2 ^ 20),    -- no of entries in the transposition table
+    ("ttSize", 2 ^ 19),    -- no of entries in the transposition table
     ("ttWindow", 0),	-- protected window in the transposition table
     -- ("hashSize", 1),    -- entries in the hash
     ("firstDepth", 1),           -- first search depth in iterative deepening

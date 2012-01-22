@@ -284,7 +284,13 @@ startSearchThread tim tpm mtg dpt = do
     ctxCatch (searchTheTree fd dpt 0 tim tpm mtg Nothing [] [])
         $ \e -> do
             let mes = "searchTheTree terminated by exception: " ++ show e
-            ctxLog "Error" mes
+            ctx <- ask
+            case logger ctx of
+                Just _  -> ctxLog "Error" mes
+                Nothing -> do
+                    let efname = "Abulafia_" ++ show (strttm ctx) ++ "_err.txt"
+                        efcont = unlines [idName, mes]
+                    liftIO $ writeFile efname efcont
             answer $ infos mes
             liftIO $ threadDelay $ 50*1000 -- give time to send the ans
 
@@ -405,7 +411,7 @@ answer s = do
 
 -- Version and suffix:
 progVersion = "0.60"
-progVerSuff = " s1r1"
+progVerSuff = " redu"
 
 -- These are the possible answers from engine to GUI:
 idName = "id name Abulafia " ++ progVersion ++ progVerSuff

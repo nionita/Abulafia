@@ -41,6 +41,8 @@ aspTries = 3
 
 -- Some fix search parameter
 timeNodes   = 1024 - 1	-- check time every so many nodes
+scoreGrain  = 4	-- score granularity
+pathGrain   = fromIntegral scoreGrain	-- path Granularity
 depthForCM  = 7 -- from this depth inform current move
 minToStore  = 1 -- minimum remaining depth to store the position in hash
 minToRetr   = 1 -- minimum remaining depth to retrieve
@@ -103,7 +105,7 @@ iidNewDepth = subtract 1
 
 -- Parameter for quiescenst search
 inEndlessCheck, qsDelta :: Int
-inEndlessCheck = -1	-- there is a risk to be left in check
+inEndlessCheck = -scoreGrain	-- there is a risk to be left in check
 qsDelta     = 1100
 
 type Search m a = forall r. STPlus r PVState m a
@@ -420,29 +422,27 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
        then {-# SCC "forpvSearchRoot" #-} pvSearch nst (-b) (-a) d' pvpath' nulMoves
        else {-# SCC "nullWindowRoot" #-} do
            -- no futility pruning for root moves!
-           -- lift $ informStr $ "Search with closed window a = " ++ show (-a-1)
+           -- lift $ informStr $ "Search with closed window a = " ++ show (-a-scoreGrain)
            --            ++ " b = " ++ show (-a) ++ " depth " ++ show d'
            -- Only here we need IID, because previously, in PV, we had pvcont (from previous level)
            -- and only at depth 0 we have nothing, but then the depth is too low for IID
            pvpath <- if useIID && nullSeq pvpath'
-                        then {-# SCC "firstFromIIDRoot" #-} bestMoveFromIID nst (-a-1) (-a) d' nulMoves
+                        then {-# SCC "firstFromIIDRoot" #-} bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
                         else {-# SCC "firstFromC&HRoot" #-} return pvpath'
-           s1 <- pvSearch nst (-a-1) (-a) d' pvpath nulMoves
+           s1 <- pvSearch nst (-a-pathGrain) (-a) d' pvpath nulMoves
            -- -- checkMe s1 "pvInnerRootExten 3"
            abrt <- gets abort
-           if not abrt && -s1 > a -- we didn't fail low, so we need re-search
-              then {-# SCC "nullWinResRoot" #-} do
+           if abrt || -s1 <= a -- we failed low as expected
+              then return s1
+              else {-# SCC "nullWinResRoot" #-} do
+                 -- here we need re-search
                  -- pindent $ "Research! (" ++ show s1 ++ ")"
-                 -- Here we need to redescover a best move with open window
-                 -- pvpath'' <- if useIID then bestMoveFromIID nst (-b) (-a) d' nulMoves else return pvpath
                  let nst' = nst { ownnt = PVNode }
                  if reduced && d > 1
                     then do	-- re-search with no reduce for root moves
-                      -- let d''= fst $! nextDepth (d+exd') (draft old) (movno nst) False (forpv nst)
                       let d''= fst $! nextDepth (d+exd') (movno nst) False True
                       {-# SCC "nullWinResRootDD" #-} pvSearch nst' (-b) (-a) d'' pvpath nulMoves
                     else {-# SCC "nullWinResRootSD" #-} pvSearch nst' (-b) (-a) d' pvpath nulMoves
-              else return s1
     where !inPv = ownnt nst == PVNode
           a = cursc nst
           okToReduce t = lmrActive && not (inPv || spec || exd > 0 || d < lmrMinDRed) && not t
@@ -734,24 +734,21 @@ pvInnerLoopExten b d spec exd nst = do
                        let pvpath' = if nullSeq pvpath_ && hdeep > 0 && tp > 0 then Seq [e'] else pvpath_
                        --1-- let !pvpath = if hdeep > 0 && tp > 0 then Seq [] else (pvcont nst)
                        pvpath <- if useIID && nullSeq pvpath'
-                                    then bestMoveFromIID nst (-a-1) (-a) d' nulMoves
+                                    then bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
                                     else return pvpath'
-                       !s1 <- pvSearch nst (-a-1) (-a) d' pvpath nulMoves
+                       !s1 <- pvSearch nst (-a-pathGrain) (-a) d' pvpath nulMoves
                        abrt <- gets abort
                        -- -- checkMe s1 "pvInnerLoopExten 4"
-                       if not abrt && -s1 > a -- we need re-search
-                          then do
-                            -- pvpath'' <- if useIID then bestMoveFromIID nst (-b) (-a) d' nulMoves else return pvpath
-                            -- pvpath'' <- if useIID && nullSeq pvpath'
-                            --                then bestMoveFromIID nst (-b) (-a) d' nulMoves
-                            --                else return pvpath'
+                       if abrt || -s1 <= a
+                          then return s1
+                          else do
+                            -- we need re-search
                             let nst' = nst { ownnt = PVNode }
                             if reduced && d >= lmrMinDFRes
                                then do	-- re-search with no reduce is expensive!
                                   let !d'' = fst $ nextDepth (d+exd') mn False (ownnt nst == PVNode)
                                   pvSearch nst' (-b) (-a) d'' pvpath nulMoves
                                else pvSearch nst' (-b) (-a) d' pvpath nulMoves
-                          else return s1
     where !inPv = ownnt nst == PVNode
           a = cursc nst
           okToReduce t = lmrActive
@@ -979,7 +976,7 @@ timeToAbort = do
                       then return False
                       else do
                           lift $ informStr "Albeta: search abort!"
-                          modify $ \s -> s { abort = True }
+                          put s { abort = True }
                           return True
 
 {-# INLINE reportStats #-}
