@@ -82,7 +82,7 @@ startTheMachine = do
     let logg = forceLogging || loglev ctx > 0 
     when logg $ do
         crtt <- liftIO currentSecs
-        let logFileName = "abaaba" ++ show crtt ++ ".log"
+        let logFileName = progLogName ++ show crtt ++ ".log"
         startLogger logFileName
     startWriter
     startInformer
@@ -242,14 +242,22 @@ getTimeParams cs lastsc c
           tim = fromMaybe 0 $ findTime c cs
           mtg = fromMaybe 0 $ findMovesToGo cs
 
+timeReserved   = 20	-- milliseconds reserved for move communication
+remTimeFracIni = 0.1	-- fraction of remaining time which we can consume at once - initial value
+remTimeFracFin = 0.9	-- same at final (when remaining time is near zero)
+remTimeFracDev = remTimeFracFin - remTimeFracIni
+
 compTime tim tpm fixmtg lastsc
     = if tpm == 0 && tim == 0 then (0, 0) else (ctm, tmx)
     where ctn = tpm + tim `div` mtg
           ctm = if tim > 0 && tim < 8000 || tim == 0 && tpm < 1500 then 200 else ctn
           mtg = if fixmtg > 0 then fixmtg else estimateMovesToGo lastsc
-          -- tmx = (if tim == 0 then tpm else tim) - 200
-          rtim = max 0 $ tim - ctm	-- rest time after this move
-          tmx  = ctm + rtim `div` 2	-- we abort when we consume half of the rest time
+          frtim = fromIntegral $ max 0 $ tim - ctm	-- rest time after this move
+          fctm  = fromIntegral ctm
+          rtimprc = fctm / max frtim fctm
+          rtimfrc = remTimeFracIni + remTimeFracDev * rtimprc
+          tmxt = round $ fctm + rtimfrc * frtim
+          tmx  = min (tim - timeReserved) tmxt
 
 estMvsToGo :: Array Int Int
 estMvsToGo = listArray (0, 8) [30, 28, 24, 18, 12, 10, 8, 6, 3]
@@ -267,7 +275,7 @@ newThread a = do
 
 startWorking :: Int -> Int -> Int -> Int -> CtxIO ()
 startWorking tim tpm mtg dpt = do
-    currms <- currMilli
+    currms <- lift currMilli
     ctxLog "Info" $ "Start at " ++ show currms
         ++ " to search: " ++ show tim ++ " / " ++ show tpm ++ " / " ++ show mtg
         ++ " - maximal " ++ show dpt ++ " plys"
@@ -315,12 +323,12 @@ betterSc = 25
 searchTheTree :: Int -> Int -> Int -> Int -> Int -> Int -> Maybe Int -> [Move] -> [Move] -> CtxIO ()
 searchTheTree tief mtief timx tim tpm mtg lsc lpv rmvs = do
     chg <- readChanging
-    ctxLog "Info" $ "Timx = " ++ show timx
+    ctxLog "Info" $ "Time = " ++ show tim ++ " Timx = " ++ show timx
     (path, sc, rmvsf, stfin) <- bestMoveCont tief timx (crtStatus chg) lsc lpv rmvs
     case length path of _ -> return () -- because of lazyness!
     storeBestMove path sc	-- write back in status
     modifyChanging (\c -> c { crtStatus = stfin })
-    currms <- currMilli
+    currms <- lift currMilli
     let (ms', mx) = compTime tim tpm mtg sc
         ms  = if sc > betterSc
                  then ms' * 4 `div` 5
@@ -341,6 +349,7 @@ searchTheTree tief mtief timx tim tpm mtg lsc lpv rmvs = do
     -- answer $ infos $ "mx     = " ++ show mx
     -- answer $ infos $ "cr+mx  = " ++ show (currms + mx)
     ctxLog "Info" mes
+    ctxLog "Info" $ "compTime: " ++ show ms' ++ " / " ++ show mx
     -- if ms > 0 && (delta <= 0 || tief >= mtief)  -- time is over or maximal depth
     if depthmax || timeover || onlyone
         then do
@@ -412,10 +421,15 @@ answer s = do
 
 -- Version and suffix:
 progVersion = "0.60"
-progVerSuff = " redu"
+progVerSuff = "debu"
+
+progLogName = "abulafia" ++ "-" ++ progVersion
+                 ++ if null progVerSuff then ""
+                                        else "-" ++ progVerSuff
 
 -- These are the possible answers from engine to GUI:
-idName = "id name Abulafia " ++ progVersion ++ progVerSuff
+idName = "id name Abulafia " ++ progVersion
+             ++ if null progVerSuff then "" else " " ++ progVerSuff
 idAuthor = "id author Nicu Ionita"
 uciOk = "uciok"
 

@@ -1,16 +1,16 @@
 module Struct.Context where
 
 import Control.Concurrent.Chan
-import System.Time
 import Control.Concurrent
 import Control.Concurrent.MVar
 import Control.Monad.State.Strict
 import Control.Monad.Reader
+import System.Time
 
 import Struct.Struct
 import Struct.Status
 import Config.ConfigClass
-import Search.SearchMonad
+import Search.SearchMonad hiding (lift)
 
 data InfoToGui = Info {
                     infoDepth :: Int,
@@ -88,9 +88,9 @@ ctxLog prf mes = do
 logging mlchan prf mes =
     case mlchan of
         Just lchan -> do
-            -- cs <- currentSecs
-            TOD s ps   <- liftIO getClockTime
-            let cms = fromIntegral $ s*1000 + ps `div` 1000000000
+            -- TOD s ps   <- liftIO getClockTime
+            -- let cms = fromIntegral $ s*1000 + ps `div` 1000000000
+            cms <- currMilli
             writeChan lchan $ show cms ++ " [" ++ prf ++ "]: " ++ mes
         Nothing    -> return ()
 
@@ -98,19 +98,20 @@ currentSecs = do
     TOD s _ <- getClockTime
     return s
 
+secondZero = 1300000000	-- the reference second - has to be increased by 1 mio every about 3 years
+
 -- Current time in ms (since program start)
-currMilli :: CtxIO Int
+currMilli :: IO Int
 currMilli = do
     TOD s ps   <- liftIO getClockTime
-    TOD s0 ps0 <- asks strttm
-    return $ fromIntegral $ (s-s0)*1000 + (ps-ps0) `div` 1000000000
+    return $ fromIntegral $ (s-secondZero)*1000 + ps `div` 1000000000
 
 -- Communicate the best path so far
 informGui :: Int -> Int -> Int -> [Move] -> CtxIO ()
 informGui sc tief nds path = do
     ctx <- ask
     chg <- readChanging
-    currt <- currMilli
+    currt <- lift currMilli
     let gi = Info {
                 infoDepth = tief,
                 infoTime = currt - srchStrtMs chg,

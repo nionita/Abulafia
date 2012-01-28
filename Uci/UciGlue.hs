@@ -17,7 +17,7 @@ import Eval.Eval
 
 instance CtxMon CtxIO where
     tellCtx = talkToContext
-    timeCtx = currMilli
+    timeCtx = lift currMilli
 
 -- Parameter of the search at this level:
 aspirWindow   = 24	-- initial aspiration window
