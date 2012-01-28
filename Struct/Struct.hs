@@ -138,7 +138,8 @@ tabla p sq
 newtype Move = Move Word32 deriving Eq
 
 instance Show Move where
-    show m = "Move " ++ toString m
+    -- show m = "Move " ++ toString m
+    show = toString
 
 -- some constant bitboards for additional conditions like
 -- en-passant, castle rights and 50 moves rule

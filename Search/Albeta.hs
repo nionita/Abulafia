@@ -318,7 +318,7 @@ pvRootSearch a b d lastpath rmvs aspir = do
     abrt <- gets abort
     rsr <- if abrt || weak nstf		-- aborted or failed low
               then do
-                when (not aspir) $ do
+                when (not (abrt || aspir)) $ do
                      s <- get
                      lift $ logmes $ "Failed low at root! Status: " ++ show s
                 return (a, emptySeq, edges)	-- just to permit aspiration to retry
@@ -855,15 +855,19 @@ isPruneFutil d a b
         -- checkMe a "isPruneFutere 1"
         -- checkMe b "isPruneFutere 2"
         let !margin = futilMargins ! d
-        -- v <- lift materVal	-- can we do here direct static evaluation?
-        v <- pvQSearch (pathScore a) (pathScore b) 0
-        let a' = pathScore a
+            a' = pathScore a
             b' = pathScore b
+        v <- lift staticVal
+        -- v <- lift materVal	-- can we do here direct static evaluation?
+        -- v <- pvQSearch a' b' 0
         if v < a' && v + margin <= a'
            then return (True, onlyScore a)
            else if v > b' && v - margin >= b'
                 then return (True, onlyScore b)
                 else return (False, 0)
+
+trimax :: Int -> Int -> Int -> Int
+trimax a b x = if x < a then a else if x > b then b else x
 
 -- PV Quiescent Search
 pvQSearch :: Node m => Int -> Int -> Int -> Search m Int
@@ -880,13 +884,12 @@ pvQSearch a b c = do				   -- to avoid endless loops
               then return stp
               else if c >= qsMaxChess
                       -- then qindent ("<= -1") >> return inEndlessCheck
-                      then return inEndlessCheck
+                      then return $! trimax a b inEndlessCheck
                       else do
                           -- for check extensions in case of very few moves (1 or 2):
                           -- if 1 move: search even deeper
                           -- if 2 moves: same depth
                           -- if 3 or more: no extension
-                          -- let !esc = length $ take 3 $ unalt edges
                           let !esc = lenmax3 $ unalt edges
                               !nc = c + esc - 2
                               !a' = if stp > a then stp else a
@@ -905,7 +908,7 @@ pvQSearch a b c = do				   -- to avoid endless loops
                           edges <- liftM Alt $ lift genTactEdges
                           if noMove edges
                              -- then qindent ("<= " ++ show stp) >> return stp
-                             then return stp
+                             then return $! trimax a b stp
                              else do
                                  let !a' = if stp > a then stp else a
                                  !s <- pvLoop (pvQInnerLoop b c) a' edges

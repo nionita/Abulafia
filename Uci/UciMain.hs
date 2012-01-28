@@ -34,7 +34,7 @@ import Eval.FileParams (makeEvalState, learnConfigFilePrefix)
 
 killingThread = False
 -- killingStop = 5
-forceLogging = False || learnEval
+forceLogging = True || learnEval
 
 initContext :: GConfig -> IO Context
 initContext cf@(GConfig cfg) = do
@@ -315,6 +315,7 @@ betterSc = 25
 searchTheTree :: Int -> Int -> Int -> Int -> Int -> Int -> Maybe Int -> [Move] -> [Move] -> CtxIO ()
 searchTheTree tief mtief timx tim tpm mtg lsc lpv rmvs = do
     chg <- readChanging
+    ctxLog "Info" $ "Timx = " ++ show timx
     (path, sc, rmvsf, stfin) <- bestMoveCont tief timx (crtStatus chg) lsc lpv rmvs
     case length path of _ -> return () -- because of lazyness!
     storeBestMove path sc	-- write back in status
