@@ -34,7 +34,7 @@ import Eval.FileParams (makeEvalState, learnConfigFilePrefix)
 
 killingThread = False
 -- killingStop = 5
-forceLogging = True || learnEval
+forceLogging = False || learnEval
 
 initContext :: GConfig -> IO Context
 initContext cf@(GConfig cfg) = do
@@ -421,7 +421,7 @@ answer s = do
 
 -- Version and suffix:
 progVersion = "0.60"
-progVerSuff = "debu"
+progVerSuff = "nofu"
 
 progLogName = "abulafia" ++ "-" ++ progVersion
                  ++ if null progVerSuff then ""

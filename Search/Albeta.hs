@@ -74,12 +74,12 @@ logrd :: Int -> Int -> Double -> Double
 logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
 
 -- Parameters for futility pruning:
-futilActive = True
+futilActive = False
 maxFutilDepth = 3
 futilMargins :: UArray Int Int
-futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]
--- futilMargins = array (1, 3) [ (1, 500), (2, 750), (3, 1200) ]
--- futilMargins = array (1, 3) [ (1, 600), (2, 900), (3, 1200) ]
+-- futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
+futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
+-- futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
 
 -- Parameters for quiescent search:
 qsBetaCut  = True	-- use beta cut in QS?
@@ -202,6 +202,7 @@ combinePath p1 p2 = p1 { pathScore = pathScore p2,
 
 -- Here: the definitions of instances for Eq and Ord for Path are inconsistent!
 -- Because (==) in Eq is not the same as EQ in Ord!!
+-- But: if we compare depths when equal scores, then nothing works anymore!!!
 instance Eq Path where
     p1 == p2 = pathScore p1 == pathScore p2 && pathDepth p1 == pathDepth p2
 
@@ -714,10 +715,10 @@ pvInnerLoopExten b d spec exd nst = do
                  when inPv $ lift $ informStr "Pruning in PV!"
                  -- futility pruning
                  inschool <- gets $ school . ronly
-                 (!prune, !v) <- if not futilActive || tact || spec || inschool
+                 (!prune, !v) <- if futilActive && not (tact || spec || inschool)
                                   -- don't prune when tactical or in learning
-                                  then return (False, 0)
-                                  else isPruneFutil (d-1) (-b) (-a)	-- d-1 - cause moved already
+                                  then isPruneFutil (d-1) (-b) (-a)	-- cause we moved already
+                                  else return (False, 0)
                  if prune
                     then return v	-- we will fail low or high
                     else do
@@ -842,14 +843,14 @@ pvLoop f s (Alt (e:es)) = do
 
 isPruneFutil :: Node m => Int -> Path -> Path -> Search m (Bool, Path)
 isPruneFutil d a b
-    | d > maxFutilDepth = return (False, 0)
+    | d <= 0 || d > maxFutilDepth = return (False, 0)
     | otherwise = do
         let !margin = futilMargins ! d
             a' = pathScore a
             b' = pathScore b
-        v <- lift staticVal
+        v <- lift staticVal	-- E1
         -- v <- lift materVal	-- can we do here direct static evaluation?
-        -- v <- pvQSearch a' b' 0
+        -- v <- pvQSearch a' b' 0	-- E2
         if v < a' && v + margin <= a'
            then return (True, onlyScore a)
            else if v > b' && v - margin >= b'
