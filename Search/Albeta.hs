@@ -74,7 +74,7 @@ logrd :: Int -> Int -> Double -> Double
 logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
 
 -- Parameters for futility pruning:
-futilActive = False
+futilActive = True
 maxFutilDepth = 3
 futilMargins :: UArray Int Int
 -- futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
@@ -151,7 +151,6 @@ data NodeState
           cursc :: Path,	-- current alpha value (now plus path & depth)
           movno :: !Int,	-- current move number
           pvsl  :: [Pvsl],	-- principal variation list (at root) with node statistics
-          weak  :: !Bool,	-- to recognize all nodes
           killer :: Killer, -- the current killer moves
           pvcont :: Seq Move	-- a pv continuation from the previous iteration, if available
       } deriving Show
@@ -204,7 +203,8 @@ combinePath p1 p2 = p1 { pathScore = pathScore p2,
 -- Because (==) in Eq is not the same as EQ in Ord!!
 -- But: if we compare depths when equal scores, then nothing works anymore!!!
 instance Eq Path where
-    p1 == p2 = pathScore p1 == pathScore p2 && pathDepth p1 == pathDepth p2
+    -- p1 == p2 = pathScore p1 == pathScore p2 && pathDepth p1 == pathDepth p2
+    p1 == p2 = pathScore p1 == pathScore p2
 
 instance Ord Path where
     compare p1 p2 = ord
@@ -242,7 +242,7 @@ emptySeq = Seq []
 pvsInit = PVState { ronly = pvro00, draft = 0, absdp = 0,
                     usedext = 0, abort = False, short = False, stats = stt0 }
 nst0 :: NodeState
-nst0 = NSt { ownnt = PVNode, forpv = True, cursc = 0, movno = 1, weak = True,
+nst0 = NSt { ownnt = PVNode, forpv = True, cursc = 0, movno = 1,
              killer = NoKiller, pvsl = [], pvcont = emptySeq }
 stt0 = SStats { sNodes = 0, sNodesQS = 0, sRetr = 0, sRSuc = 0 }
 pvro00 = PVReadOnly { school = False, albest = False, timeli = False, abmili = 0 }
@@ -317,16 +317,23 @@ pvRootSearch a b d lastpath rmvs aspir = do
     let !pvc  = if nullSeq lastpath then lastpath else Seq $ tail $ unseq lastpath
         !nsti = nst0 { cursc = pathFromScore "Alpha" a, pvcont = pvc }
     nstf <- pvLoop (pvInnerRoot (pathFromScore "Beta" b) d) nsti edges
+    reportStats
+    let failedlow = (a, emptySeq, edges)	-- just to permit aspiration to retry
     abrt <- gets abort
-    rsr <- if abrt || weak nstf		-- aborted or failed low
+    if abrt
+       then return failedlow
+       else do
+         let s' = pathScore (cursc nstf)
+         lift $ informStr $ "pvRootSearch: cursc = " ++ show (cursc nstf) ++ ", a = " ++ show a
+         if s' <= a	-- failed low
               then do
-                when (not (abrt || aspir)) $ do
+                when (not aspir) $ do
                      s <- get
-                     lift $ logmes $ "Failed low at root! Status: " ++ show s
-                return (a, emptySeq, edges)	-- just to permit aspiration to retry
+                     lift $ informStr "Failed low at root!"
+                return failedlow
               else do
+                 lift $ mapM_ (\m -> informStr $ "Root move: " ++ show m) (pvsl nstf)
                  albest' <- gets (albest . ronly)
-                 let s' = pathScore (cursc nstf)
                  (s, p) <- if s' >= b
                               then return (s', unseq $ pathMoves (cursc nstf))
                               else lift $ choose albest'
@@ -334,16 +341,15 @@ pvRootSearch a b d lastpath rmvs aspir = do
                                         $ map pvslToPair
                                         $ filter pvGood $ pvsl nstf
                  when (d < depthForCM) $ informBest s d p
-                 when (length p < d) $ do
-                     s <- get
-                     lift $ informStr $ "Shorter path depth " ++ show d
-                                        ++ " cursc: " ++ show (cursc nstf)
-                 let !best = head p
-                     !xrmvs = Alt $ best : delete best (unalt edges)	-- best on top
+                 -- when (length p < d) $ do
+                 --     s <- get
+                 --     lift $ informStr $ "Shorter path depth " ++ show d
+                 --                        ++ " cursc: " ++ show (cursc nstf)
+                 let best = head p
+                     allrmvs = if s' >= b then unalt edges else map pvslToMove (pvsl nstf)
+                     xrmvs = Alt $ best : delete best allrmvs	-- best on top
                  return (s, Seq p, xrmvs)
-    reportStats
     -- lift $ informStr $ "*** Killers at root: " ++ show (killer nstf)
-    return rsr
     where fstdesc (a, _) = -a
 
 pvslToPair :: Pvsl -> (Int, [Move])
@@ -352,6 +358,9 @@ pvslToPair (Pvsl { pvPath = p }) = (score, pv)
           de = pathDepth p
           sc = pathScore p
           score = scoreToExtern sc de
+
+pvslToMove :: Pvsl -> Move
+pvslToMove (Pvsl { pvPath = Path { pathMoves = Seq (m:_)}}) = m
 
 -- The internal score is for weird for found mates (always mate)
 -- Turn it to nicer score by considering path lenght to mate
@@ -371,43 +380,46 @@ pvInnerRoot :: Node m
             -> Search m (Bool, NodeState)
 pvInnerRoot b d nst e = do
     -- when debug $ logmes $ "--> pvInner: b d old: " ++ show b ++ ", " ++ show d ++ ", " ++ show old
-    old <- get
-    let !mn = movno nst
-    when (draft old >= depthForCM) $ lift $ informCM e mn
-    -- pindent $ "-> " ++ show e
-    -- lift $ logmes $ "Search root move " ++ show e ++ " a = " ++ show a ++ " b = " ++ show b
-    -- do the move
-    exd <- {-# SCC "newNode" #-} lift $ doEdge e False
-    newNode
     abrt <- timeToAbort
     if abrt
-       then do
-           lift $ undoEdge e
-           return (True, nst)
+       then return (True, nst)
        else do
-           modify $ \s -> s { absdp = absdp s + 1 }
-           s <- case exd of
-                    Exten exd' -> pvInnerRootExten b d (special e) exd' nst
-                    Final sco  -> return $! pathFromScore "Final" sco
-           -- undo the move
-           lift $ undoEdge e
-           modify $ \s -> s { absdp = absdp old, usedext = usedext old }
-           s' <- checkPath nst d "cpl 1" $ addToPath e (pnextlev s)
-           -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
-           -- lift $ informStr $ "<- " ++ show e ++ " (" ++ show (pathScore s)
-           --                                 ++ " /// " ++ show (pathScore s') ++ ")"
-           checkFailOrPVRoot (stats old) b d e s' nst
+         old <- get
+         when (draft old >= depthForCM) $ lift $ informCM e $ movno nst
+         pindent $ "-> " ++ show e
+         -- lift $ logmes $ "Search root move " ++ show e ++ " a = " ++ show a ++ " b = " ++ show b
+         -- do the move
+         exd <- {-# SCC "newNode" #-} lift $ doEdge e False
+         newNode
+         modify $ \s -> s { absdp = absdp s + 1 }
+         s <- case exd of
+                  Exten exd' -> pvInnerRootExten b d (special e) exd' nst
+                  Final sco  -> return $! pathFromScore "Final" (-sco)
+         -- undo the move
+         lift $ undoEdge
+         modify $ \s -> s { absdp = absdp old, usedext = usedext old }
+         -- s' <- checkPath nst d "cpl 1" $ addToPath e (pnextlev s)
+         s' <- checkPath nst d "cpl 1" $ addToPath e s
+         pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+         -- lift $ informStr $ "<- " ++ show e ++ " (" ++ show (pathScore s)
+         --                                 ++ " /// " ++ show (pathScore s') ++ ")"
+         checkFailOrPVRoot (stats old) b d e s' nst
 
 pvInnerRootExten :: Node m => Path -> Int -> Bool -> Int -> NodeState -> Search m Path
 pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
-    -- pindent $ "depth = " ++ show d
+    pindent $ "depth = " ++ show d
     old <- get
     exd' <- reserveExtension (usedext old) exd
     tact <- lift tactical
-    let reduce = okToReduce tact
+    let inPv = ownnt nst == PVNode
+        a = cursc nst
+        reduce = lmrActive && not (tact || inPv || spec || exd > 0 || d < lmrMinDRed)
         (!d', reduced) = nextDepth (d+exd') (movno nst) reduce (forpv nst && a < b - 1)
         !pvpath_ = pvcont nst
-    -- pindent $ "exd' = " ++ show exd'
+    pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
+              ++ " exd' = " ++ show exd'
+              ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
+              ++ " forpv " ++ show (forpv nst)
     -- We can have and try here as first move (in order of low to high cost):
     -- 1: a continuation from a previous search (pvcont nst) (eventuell a previous IID)
     -- 2: one move from hash
@@ -419,10 +431,9 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
                                   else {-# SCC "firstFromContRoot" #-} return pvpath_
     -- when (nullSeq pvpath' && forpv nst) $ lift
     --                     $ logmes $ "pvpath is null: d=" ++ show d ++ ", ownnt =" ++ show (ownnt nst)
-    -- when (d' < d-1) $ pindent $ "d' = " ++ show d'
     if forpv nst
        then {-# SCC "forpvSearchRoot" #-}
-            pvSearch nst (-b) (-a) d' pvpath' nulMoves >>= checkPath nst d' "cpl 11"
+            pvSearch nst (-b) (-a) d' pvpath' nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 11"
        else {-# SCC "nullWindowRoot" #-} do
            -- no futility pruning for root moves!
            -- lift $ informStr $ "Search with closed window a = " ++ show (-a-scoreGrain)
@@ -433,24 +444,21 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
                         then {-# SCC "firstFromIIDRoot" #-} bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
                         else {-# SCC "firstFromC&HRoot" #-} return pvpath'
            s1 <- pvSearch nst (-a-pathGrain) (-a) d' pvpath nulMoves
-                   >>= checkPath nst d' "cpl 2"
+                   >>= return . pnextlev >>= checkPath nst d' "cpl 2"
            abrt <- gets abort
-           if abrt || -s1 <= a -- we failed low as expected
+           if abrt || s1 <= a -- we failed low as expected
               then return s1
               else {-# SCC "nullWinResRoot" #-} do
                  -- here we didn't fail low and need re-search
-                 -- pindent $ "Research! (" ++ show s1 ++ ")"
+                 pindent $ "Research! (" ++ show s1 ++ ")"
                  let nst' = nst { ownnt = PVNode }
                  if reduced && d > 1
                     then do	-- re-search with no reduce for root moves
                       let d''= fst $! nextDepth (d+exd') (movno nst) False True
                       {-# SCC "nullWinResRootDD" #-} pvSearch nst' (-b) (-a) d'' pvpath nulMoves
-                                                     >>= checkPath nst d'' "cpl 12"
+                         >>= return . pnextlev             >>= checkPath nst d'' "cpl 12"
                     else {-# SCC "nullWinResRootSD" #-} pvSearch nst' (-b) (-a) d' pvpath nulMoves
-                                                        >>= checkPath nst d' "cpl 13"
-    where !inPv = ownnt nst == PVNode
-          a = cursc nst
-          okToReduce t = lmrActive && not (inPv || spec || exd > 0 || d < lmrMinDRed) && not t
+                            >>= return . pnextlev             >>= checkPath nst d' "cpl 13"
 
 checkFailOrPVRoot :: Node m => SStats -> Path -> Int -> Move -> Path
                   -> NodeState -> Search m (Bool, NodeState)
@@ -477,66 +485,66 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
             --     s0 <- pvQSearch a b 0
             --     lift $ learn d typ s s0
             let nst1 = if s > a
-                          then nst { cursc = s, ownnt = nextNodeType (ownnt nst),
-                                     forpv = False, weak = False }
+                          then nst { cursc = s, ownnt = nextNodeType (ownnt nst), forpv = False }
                           else nst
             xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
             return (False, nst1 {movno = mn + 1, pvsl = xpvslg, pvcont = emptySeq})
-       else if s >= b
-               then {-# SCC "scoreBetaCutRoot" #-} do
-                    -- what when a root move fails high? We are in aspiration
-                    let typ = 1	-- best move is e and is beta cut (score is lower limit)
-                    when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes
-                    -- when inschool $ do
-                    --     s0 <- pvQSearch a b 0
-                    --     lift $ learn d typ b s0
-                    lift $ betaMove True d (absdp sst) e
-                    xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
-                    csc <- checkPath nst d "cpl 3" $ if s > b then combinePath s b else s
-                    let nst1 = nst { cursc = csc, weak = False, pvsl = xpvslg, pvcont = emptySeq }
-                    -- lift $ logmes $ "Root move " ++ show e ++ " failed high: " ++ show s
-                    -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
-                    return (True, nst1)
-               else if s > a
-                    then {-# SCC "scoreBetterAtRoot" #-} do
-                         -- lift $ informStr $ "Next info: " ++ pathOrig s
-                         let sc = pathScore s
-                             pa = unseq $ pathMoves s
-                             le = length pa
-                         informBest (scoreToExtern sc le) (draft sst) pa
-                         let typ = 2	-- best move so far (score is exact)
-                         when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ sc e nodes
-                         -- when inschool $ do
-                         --     s0 <- pvQSearch a b 0
-                         --     lift $ learn d typ s s0
-                         xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
-                         let nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
-                                          forpv = False, movno = mn + 1,
-                                          weak = False, pvsl = xpvslg, pvcont = emptySeq }
-                         -- lift $ logmes $ "Root move " ++ show e ++ " improves alpha: " ++ show s
-                         -- lift $ informStr $ "Better (" ++ show s ++ "):" ++ show np
-                         return (False, nst1)
-                    else {-# SCC "scoreWorseAtRoot" #-} do
-                         -- when in a cut node and the move dissapointed - negative history
-                         when (useNegHist && forpv nst && a == b - 1 && mn <= negHistMNo)
-                              $ lift $ betaMove False d (absdp sst) e
-                         if (forpv nst)
-                            then return (True, nst { cursc = s })	-- i.e we failed low in aspiration
-                            else do
-                              let es = unseq $ pathMoves s
-                                  mm = head es
-                                  km = head $ drop 1 es
-                                  s1 = - pathScore s
-                              kill1 <- if d >= 2 && moreThanOne es
-                                          then do
-                                              iskm <- lift $ killCandEdge mm km
-                                              if iskm then return $! pushKiller km s1 (killer nst)
-                                                      else return $ killer nst
-                                          else return $ killer nst
-                              xpvslb <- insertToPvs d pvb (pvsl nst)	-- the bad
-                              let nst1 = nst { movno = mn + 1, pvsl = xpvslb,
-                                               killer = kill1, pvcont = emptySeq }
-                              return (False, nst1)
+       else if s <= a
+               then {-# SCC "scoreWorseAtRoot" #-} do	-- failed low
+                 -- when in a cut node and the move dissapointed - negative history
+                 when (useNegHist && forpv nst && a == b - 1 && mn <= negHistMNo)
+                      $ lift $ betaMove False d (absdp sst) e
+                 if (forpv nst)
+                    then return (True, nst { cursc = s })	-- i.e we failed low in aspiration
+                    else do
+                      let es = unseq $ pathMoves s
+                      kill1 <- if d >= 2 && moreThanOne es
+                                  then do
+                                      let mm = head es
+                                          km = head $ drop 1 es
+                                          s1 = - pathScore s
+                                      iskm <- lift $ killCandEdge mm km
+                                      if iskm then return $! pushKiller km s1 (killer nst)
+                                              else return $ killer nst
+                                  else return $ killer nst
+                      xpvslb <- insertToPvs d pvb (pvsl nst)	-- the bad
+                      let nst1 = nst { movno = mn + 1, pvsl = xpvslb,
+                                       killer = kill1, pvcont = emptySeq }
+                      return (False, nst1)
+               else if s >= b
+                 then {-# SCC "scoreBetaCutRoot" #-} do
+                   -- what when a root move fails high? We are in aspiration
+                   let typ = 1	-- best move is e and is beta cut (score is lower limit)
+                   when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes
+                   -- when inschool $ do
+                   --     s0 <- pvQSearch a b 0
+                   --     lift $ learn d typ b s0
+                   lift $ betaMove True d (absdp sst) e
+                   xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
+                   !csc <- checkPath nst d "cpl 3" $ if s > b then combinePath s b else s
+                   pindent $ "beta cut: " ++ show csc
+                   let nst1 = nst { cursc = csc, pvsl = xpvslg, pvcont = emptySeq }
+                   -- lift $ logmes $ "Root move " ++ show e ++ " failed high: " ++ show s
+                   -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
+                   return (True, nst1)
+                 else {-# SCC "scoreBetterAtRoot" #-} do	-- means: > a && < b
+                   -- lift $ informStr $ "Next info: " ++ pathOrig s
+                   let sc = pathScore s
+                       pa = unseq $ pathMoves s
+                       le = length pa
+                   informBest (scoreToExtern sc le) (draft sst) pa
+                   let typ = 2	-- best move so far (score is exact)
+                   when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ sc e nodes
+                   -- when inschool $ do
+                   --     s0 <- pvQSearch a b 0
+                   --     lift $ learn d typ s s0
+                   xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
+                   let nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
+                                    forpv = False, movno = mn + 1,
+                                    pvsl = xpvslg, pvcont = emptySeq }
+                   -- lift $ logmes $ "Root move " ++ show e ++ " improves alpha: " ++ show s
+                   -- lift $ informStr $ "Better (" ++ show s ++ "):" ++ show np
+                   return (False, nst1)
 
 insertToPvs :: Node m => Int -> Pvsl -> [Pvsl] -> Search m [Pvsl]
 insertToPvs _ p [] = return [p]
@@ -569,63 +577,66 @@ mustQSearch !a !b = do
 pvSearch :: Node m => NodeState -> Path -> Path -> Int -> Seq Move -> Int
                        -> Search m Path
 pvSearch _ !a !b !d _ _ | d <= 0 = do
-    (v, ns) <- if minToRetr == 0 && d == 0
+    (v, ns) <- if minToRetr == 0
                   then do
                     (hdeep, tp, hscore, e', nodes)
                         <- {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
                     let hs = - pathFromScore "TT Score" hscore
-                    if hdeep >= d && (tp == 2 || tp == 1 && hs > a || tp == 0 && hs <= a)
+                    if hdeep >= 0 && (tp == 2 || tp == 1 && hs > a || tp == 0 && hs <= a)
                        then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes >> return (hscore, 0)
                        else mustQSearch (pathScore a) (pathScore b)
                   else mustQSearch (pathScore a) (pathScore b)
     when (minToStore == 0 && ns > 0)
         $ lift $ {-# SCC "hashStore" #-} store 0 2 v (Move 0) ns
-    when debug $ lift $ logmes $ "<-- pvSearch: reach depth 0, return " ++ show v
     -- let !v' = if v <= a then a else if v > b then b else v
-    -- pindent $ "<> " ++ show v
     let esc = pathFromScore ("pvQSearch 1:" ++ show v) v
+    pindent $ "<> " ++ show esc
     -- check d esc "cpl 4"
     return esc
 pvSearch nst !a !b !d lastpath lastnull = do
-    -- pindent $ "=> " ++ show a ++ ", " ++ show b
+    pindent $ "=> " ++ show a ++ ", " ++ show b
     nmhigh <- nullEdgeFailsHigh nst b d lastnull
     abrt <- gets abort
     if abrt || nmhigh
-       -- then pindent ("<= " ++ show b) >> return (onlyScore b)
-       then return $! onlyScore b
+       then do
+         let s = onlyScore b
+         pindent $ "<= " ++ show s
+         return s
+       -- then return $! onlyScore b
        else do
-          edges <- genAndSort lastpath (killer nst) d (forpv nst)	-- here: (ownnt nst /= AllNode)
-          if noMove edges
-             then do
-                  v <- lift staticVal
-                  -- pindent ("<= " ++ show v)
-                  return $! pathFromScore ("static: " ++ show v) v
-             else do
-                  nodes0 <- gets (sNodes . stats)
-                  -- Loop thru the moves
-                  let !pvpath = if nullSeq lastpath then emptySeq else Seq $ tail $ unseq lastpath
-                      !nsti = nst0 { ownnt = deepNodeType (ownnt nst), cursc = a, pvcont = pvpath }
-                  nstf <- pvLoop (pvInnerLoop b d) nsti edges
-                  abrt <- gets abort
-                  s <- if not abrt && weak nstf
-                          then do
-                              inschool <- gets $ school . ronly
-                              -- when inschool $ do
-                              --     s0 <- pvQSearch a b 0
-                              --     lift $ learn d typ s s0
-                              let s = cursc nstf
-                                  de = pathDepth s
-                              when (de >= minToStore) $ do
-                                  nodes1 <- gets (sNodes . stats)
-                                  let typ = 0
-                                      !deltan = nodes1 - nodes0
-                                  -- store as upper score - move does not matter - tricky here!
-                                  lift $ {-# SCC "hashStore" #-}
-                                         store de typ (pathScore s) (head $ unalt edges) deltan
-                              checkPath nst d "cpl 6a" $! onlyScore s
-                          else checkPath nst d "cpl 6b" $! cursc nstf
-                  -- pindent $ "<= " ++ show s
-                  return s
+         edges <- genAndSort lastpath (killer nst) d (forpv nst)	-- here: (ownnt nst /= AllNode)
+         if noMove edges
+            then do
+              v <- lift staticVal
+              let s = pathFromScore ("static: " ++ show v) v
+              pindent $ "<= " ++ show s
+              return s
+            else do
+              nodes0 <- gets (sNodes . stats)
+              -- Loop thru the moves
+              let !pvpath = if nullSeq lastpath then emptySeq else Seq $ tail $ unseq lastpath
+                  !nsti = nst0 { ownnt = deepNodeType (ownnt nst), cursc = a, pvcont = pvpath }
+              nstf <- pvLoop (pvInnerLoop b d) nsti edges
+              let s = cursc nstf
+              pindent $ "<= " ++ show s
+              abrt <- gets abort
+              if abrt || s > a
+                 then checkPath nst d "cpl 6b" s
+                 else do
+                     inschool <- gets $ school . ronly
+                     -- when inschool $ do
+                     --     s0 <- pvQSearch a b 0
+                     --     lift $ learn d typ s s0
+                     let de = pathDepth s
+                     when (de >= minToStore) $ do
+                         nodes1 <- gets (sNodes . stats)
+                         let typ = 0
+                             !deltan = nodes1 - nodes0
+                         -- store as upper score - move does not matter - tricky here!
+                         lift $ {-# SCC "hashStore" #-}
+                                store de typ (pathScore s) (head $ unalt edges) deltan
+                     checkPath nst d "cpl 6a" $! onlyScore s	-- why??
+                     -- return $! combinePath s a
 
 nullEdgeFailsHigh :: Node m => NodeState -> Path -> Int -> Int -> Search m Bool
 nullEdgeFailsHigh nst b d lastnull =
@@ -642,7 +653,7 @@ nullEdgeFailsHigh nst b d lastnull =
                    !d1  = d - 1 - nulRedux
                    !lastnull1 = lastnull - 1
                val <- pvSearch nst (-nmb) (-nmb + snulMargin) d1 (emptySeq) lastnull1
-               lift nullEdge	-- undo null move
+               lift undoEdge	-- undo null move
                return $! (-val) >= nmb
     where snulMargin = pathFromScore "nulMargin" nulMargin
           snulSubmrg = pathFromScore "nulSubmrg" nulSubmrg
@@ -657,25 +668,24 @@ pvInnerLoop :: Node m
             -> Move	-- move to search
             -> Search m (Bool, NodeState)
 pvInnerLoop b d nst e = do
-    old <- get
-    -- pindent $ "-> " ++ show e
-    exd <- {-# SCC "newNode" #-} lift $ doEdge e False	-- do the move
-    newNode
     abrt <- timeToAbort
     if abrt
-       then do
-           lift $ undoEdge e	-- undo the move
-           return (True, nst)
+       then return (True, nst)
        else do
-           modify $ \s -> s { absdp = absdp s + 1 }
-           s <- case exd of
-                    Exten exd' -> pvInnerLoopExten b d (special e) exd' nst
-                    Final sco  -> return $! pathFromScore "Final" sco
-           lift $ undoEdge e	-- undo the move
-           modify $ \s -> s { absdp = absdp old, usedext = usedext old }
-           s' <- checkPath nst d "cpl 8" $ addToPath e (pnextlev s)
-           -- pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
-           checkFailOrPVLoop (stats old) b d e s' nst
+         old <- get
+         pindent $ "-> " ++ show e
+         exd <- {-# SCC "newNode" #-} lift $ doEdge e False	-- do the move
+         newNode
+         modify $ \s -> s { absdp = absdp s + 1 }
+         s <- case exd of
+                  Exten exd' -> pvInnerLoopExten b d (special e) exd' nst
+                  Final sco  -> return $! pathFromScore "Final" (-sco)
+         lift $ undoEdge	-- undo the move
+         modify $ \s -> s { absdp = absdp old, usedext = usedext old }
+         -- s' <- checkPath nst d "cpl 8" $ addToPath e (pnextlev s)
+         s' <- checkPath nst d "cpl 8" $ addToPath e s
+         pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+         checkFailOrPVLoop (stats old) b d e s' nst
 
 reserveExtension !uex !exd = do
     if uex >= maxDepthExt || exd == 0
@@ -692,14 +702,20 @@ pvInnerLoopExten b d spec exd nst = do
     exd' <- reserveExtension (usedext old) exd
     let mn = movno nst
         -- late move reduction
-        !reduce = okToReduce tact
+        !inPv = ownnt nst == PVNode
+        a = cursc nst
+        reduce = lmrActive && not (tact || inPv || pnearmate a || spec || exd > 0 || d < lmrMinDRed)
         !de = d + exd'
         (!d', reduced) = nextDepth de mn reduce (forpv nst && a < b - 1)
         !pvpath_ = pvcont nst
+    pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
+              ++ " exd' = " ++ show exd'
+              ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
+              ++ " forpv " ++ show (forpv nst)
     if forpv nst
        then do
           pvpath <- if nullSeq pvpath_ then bestMoveFromHash else return pvpath_
-          pvSearch nst (-b) (-a) d' pvpath nulMoves >>= checkPath nst d' "cpl 14"
+          pvSearch nst (-b) (-a) d' pvpath nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 14"
        else do
           (hdeep, tp, hscore, e', nodes)
               <- if d >= minToRetr
@@ -707,9 +723,10 @@ pvInnerLoopExten b d spec exd nst = do
                     else return (-1, 0, 0, undefined, 0)
           let ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'],
                               pathOrig = "TT" }
+              a' = pathScore a
               --2-- ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [] }
-              hs = - ttpath
-          if hdeep >= d && (tp == 2 || tp == 1 && hs > a || tp == 0 && hs <= a)
+              -- hs = - ttpath
+          if hdeep >= d && (tp == 2 || tp == 1 && hscore > a' || tp == 0 && hscore <= a')
              then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes >> return ttpath
              else do
                  when inPv $ lift $ informStr "Pruning in PV!"
@@ -732,25 +749,22 @@ pvInnerLoopExten b d spec exd nst = do
                                     then bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
                                     else return pvpath'
                        !s1 <- pvSearch nst (-a-pathGrain) (-a) d' pvpath nulMoves
-                              >>= checkPath nst d "cpl 9"
+                              >>= return . pnextlev >>= checkPath nst d "cpl 9"
                        abrt <- gets abort
-                       if abrt || -s1 <= a
+                       if abrt || s1 <= a
                           then return s1
                           else do
                             -- we need re-search
-                            let nst' = nst { ownnt = PVNode }
-                            if reduced && (d >= lmrMinDFRes || inPv)
-                               then do	-- re-search with no reduce is expensive!
+                            pindent $ "Research! (" ++ show s1 ++ ")"
+                            let nst' = nst { ownnt = PVNode }	-- always?
+                            -- if reduced && (d >= lmrMinDFRes || inPv)
+                            if reduced && d > 1
+                               then do	-- re-search with no reduce (expensive!)
                                   let !d'' = fst $ nextDepth (d+exd') mn False inPv
                                   pvSearch nst' (-b) (-a) d'' pvpath nulMoves
-                                    >>= checkPath nst d'' "cpl 15"
+                                    >>= return . pnextlev >>= checkPath nst d'' "cpl 15"
                                else pvSearch nst' (-b) (-a) d' pvpath nulMoves
-                                      >>= checkPath nst d' "cpl 16"
-    where !inPv = ownnt nst == PVNode
-          a = cursc nst
-          okToReduce t = lmrActive
-                           && not (inPv || pnearmate a || spec || exd > 0 || d < lmrMinDRed)
-                           && not t
+                                      >>= return . pnextlev >>= checkPath nst d' "cpl 16"
 
 pnearmate = nearmate . pathScore
 pnextlev p = p { pathScore = nextlev (pathScore p) }
@@ -766,8 +780,26 @@ checkFailOrPVLoop xstats b d e s nst = do
         !nodes  = nodes1 - nodes0
         de = pathDepth s
     inschool <- gets $ school . ronly
-    if s >= b
+    if s <= a
        then do
+            -- when in a cut node and the move dissapointed - negative history
+            when (useNegHist && forpv nst && a == b - 1 && mn <= negHistMNo)
+                 $ lift $ betaMove False d (absdp sst) e
+            let !mn1 = mn + 1
+                es = unseq $ pathMoves s
+            kill1 <- if d >= 2 && moreThanOne es
+                        then do
+                            let mm = head es
+                                km = head $ drop 1 es
+                                s1 = - pathScore s
+                            iskm <- lift $ killCandEdge mm km
+                            if iskm then return $! pushKiller km s1 (killer nst)
+                                    else return $ killer nst
+                        else return $ killer nst
+            let nst1 = nst { movno = mn1, killer = kill1, pvcont = emptySeq }
+            return (False, nst1)
+       else if s >= b
+          then do
             let typ = 1	-- best move is e and is beta cut (score is lower limit)
             when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes
             lift $ betaMove True d (absdp sst) e -- anounce a beta move (for example, update history)
@@ -775,12 +807,12 @@ checkFailOrPVLoop xstats b d e s nst = do
             --     s0 <- pvQSearch a b 0
             --     lift $ learn d typ b s0
             -- when debug $ logmes $ "<-- pvInner: beta cut: " ++ show s ++ ", return " ++ show b
-            csc <- checkPath nst d "cpl 10" $ if s > b then combinePath s b else s
-            let nst1 = nst { cursc = csc, weak = False, pvcont = emptySeq }
+            !csc <- checkPath nst d "cpl 10" $ if s > b then combinePath s b else s
+            pindent $ "beta cut: " ++ show csc
+            let nst1 = nst { cursc = csc, pvcont = emptySeq }
             -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
             return (True, nst1)
-       else if s > a
-          then do
+          else do	-- means: > a && < b
               let typ = 2	-- score is exact
               when (ownnt nst == PVNode || de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes
               -- when debug $ logmes $ "<-- pvInner - new a: " ++ show s
@@ -789,25 +821,8 @@ checkFailOrPVLoop xstats b d e s nst = do
               --     lift $ learn d typ s s0
               let !mn1 = mn + 1
                   nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
-                               forpv = False, movno = mn1, weak = False, pvcont = emptySeq }
+                               forpv = False, movno = mn1, pvcont = emptySeq }
               -- lift $ informStr $ "Better (" ++ show s ++ "): " ++ show np
-              return (False, nst1)
-          else do
-              -- when in a cut node and the move dissapointed - negative history
-              when (useNegHist && forpv nst && a == b - 1 && mn <= negHistMNo)
-                   $ lift $ betaMove False d (absdp sst) e
-              let !mn1 = mn + 1
-                  es = unseq $ pathMoves s
-                  mm = head es
-                  km = head $ drop 1 es
-                  s1 = - pathScore s
-              kill1 <- if d >= 2 && moreThanOne es
-                          then do
-                              iskm <- lift $ killCandEdge mm km
-                              if iskm then return $! pushKiller km s1 (killer nst)
-                                      else return $ killer nst
-                          else return $ killer nst
-              let nst1 = nst { movno = mn1, killer = kill1, pvcont = emptySeq }
               return (False, nst1)
 
 -- We don't sort the moves here, they have to come sorted from genEdges
@@ -848,9 +863,9 @@ isPruneFutil d a b
         let !margin = futilMargins ! d
             a' = pathScore a
             b' = pathScore b
-        v <- lift staticVal	-- E1
+        -- v <- lift staticVal	-- E1
         -- v <- lift materVal	-- can we do here direct static evaluation?
-        -- v <- pvQSearch a' b' 0	-- E2
+        v <- pvQSearch a' b' 0	-- E2
         if v < a' && v + margin <= a'
            then return (True, onlyScore a)
            else if v > b' && v - margin >= b'
@@ -858,8 +873,7 @@ isPruneFutil d a b
                 else return (False, 0)
 
 {-# INLINE checkPath #-}
-checkPath _ _ _ s = return s
-{--
+-- checkPath _ _ _ s = return s
 checkPath nst d mes s = do
     iss  <- gets short
     abrt <- gets abort
@@ -867,7 +881,6 @@ checkPath nst d mes s = do
          lift $ informStr $ "Short - " ++ mes
          modify $ \s -> s { short = True }
     return s
---}
 
 trimax :: Int -> Int -> Int -> Int
 trimax a b x = if x < a then a else if x > b then b else x
@@ -884,7 +897,7 @@ pvQSearch a b c = do				   -- to avoid endless loops
            let edges = Alt $ es1 ++ es2
            if noMove edges
               -- then qindent ("<= " ++ show stp) >> return stp
-              then return stp
+              then return $! trimax a b stp
               else if c >= qsMaxChess
                       -- then qindent ("<= -1") >> return inEndlessCheck
                       then return $! trimax a b inEndlessCheck
@@ -924,29 +937,27 @@ pvQSearch a b c = do				   -- to avoid endless loops
 
 pvQInnerLoop :: Node m => Int -> Int -> Int -> Move -> Search m (Bool, Int)
 pvQInnerLoop b c a e = do
-    -- here: delta pruning: captured piece + 200 > a? then go on, else return
-    -- qindent $ "-> " ++ show e
-    r <- {-# SCC "newNodeQS" #-} lift $ doEdge e True
-    newNodeQS
     abrt <- timeToAbort
     if abrt
-       then do
-           lift $ undoEdge e
-           return (True, 0)
+       then return (True, b)	-- it doesn't matter which score we return
        else do
-           modify $ \s -> s { absdp = absdp s + 1 }
-           s <- liftM nextlev $ case r of
-                   Final s -> return s
-                   _       -> pvQSearch (-b) (-a) c
-           lift $ undoEdge e
-           modify $ \s -> s { absdp = absdp s - 1 }	-- don't care about usedext here
-           -- qindent $ "<- " ++ show e ++ " (" ++ show s ++ ")"
-           abrt <- gets abort
-           if abrt || s >= b
-              then return (True, b)
-              else if s > a
-                      then return (False, s)
-                      else return (False, a)
+         -- here: delta pruning: captured piece + 200 > a? then go on, else return
+         -- qindent $ "-> " ++ show e
+         r <- {-# SCC "newNodeQS" #-} lift $ doEdge e True
+         newNodeQS
+         modify $ \s -> s { absdp = absdp s + 1 }
+         sc <- liftM nextlev $ case r of
+                 Final sc -> return sc
+                 _        -> pvQSearch (-b) (-a) c
+         lift $ undoEdge
+         modify $ \s -> s { absdp = absdp s - 1 }	-- don't care about usedext here
+         -- qindent $ "<- " ++ show e ++ " (" ++ show s ++ ")"
+         abrt <- gets abort
+         if sc >= b
+            then return (True, b)
+            else if sc > a
+                    then return (abrt, sc)
+                    else return (abrt, a)
 
 bestMoveFromHash :: Node m => Search m (Seq Move)
 bestMoveFromHash = do

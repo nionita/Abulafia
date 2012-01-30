@@ -36,7 +36,7 @@ class Monad m => Node m where
     inSeq :: Move -> Move -> m Bool	-- can 2 moves be in sequence?
     tactical :: m Bool -- if a position is tactical, search further
     doEdge   :: Move -> Bool -> m DoResult
-    undoEdge :: Move -> m ()
+    undoEdge :: m ()
     betaMove :: Bool -> Int -> Int -> Move -> m ()   -- called for beta-cut moves
     nullEdge :: m ()		   -- do null move (and also undo)
     retrieve :: m (Int, Int, Int, Move, Int)   -- retrieve the position in hash

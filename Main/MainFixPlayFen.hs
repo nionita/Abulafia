@@ -36,7 +36,7 @@ main = do
            let depth = read $ head args
                fen   = unwords $ tail args
                pos = updatePos $ posFromFen fen
-           putStrLn $ "Analise depth " ++ show depth ++ " fen " ++ fen
+           putStrLn $ "Analyse depth " ++ show depth ++ " fen " ++ fen
            ha  <- newCache defaultConfig
            hi  <- newHist
            evs <- makeEvalState Nothing
@@ -89,9 +89,11 @@ searchTheTree tief mtief mystate lsc lpv rmvs = do
         else searchTheTree (tief + 1) mtief stfin (Just sc) path rmvsf
 
 giveBestMove :: [Move] -> Int -> IO ()
-giveBestMove mvs nodes = putStrLn $ " -> bestmove: " ++ bm ++ ", nodes: " ++ show nodes
-    where bm = sead . words . show . head $ mvs
-          sead = head . tail
+giveBestMove mvs nodes = putStrLn $ case mvs of
+    (fmv:_) -> " -> bestmove: " ++ show fmv ++ ", nodes: " ++ show nodes
+    _       -> " -> bestmove: empty PV (" ++ show nodes ++ " nodes)"
+    -- where bm   = sead . words . show
+    --      sead = head . tail
 
 isLearn = False
 

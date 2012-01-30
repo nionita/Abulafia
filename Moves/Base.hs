@@ -62,6 +62,7 @@ instance CtxMon m => Node (Game r m) where
     {-# INLINE tactical #-}
     tactical = tacticalPos
     legalEdge = isMoveLegal
+    {-# INLINE killCandEdge #-}
     killCandEdge = isKillCand
     inSeq  = okInSequence
     doEdge = doMove False
@@ -197,6 +198,7 @@ showMyPos p = showTab (black p) (slide p) (kkrq p) (diag p) ++ "================
 -- move from a node to a descendent
 doMove :: CtxMon m => Bool -> Move -> Bool -> Game r m DoResult
 doMove real m qs = do
+    -- logMes $ "** doMove " ++ show m
     statNodes   -- when counting all visited nodes
     s  <- get
     -- let pc = if null (stack s) then error "doMove" else head $ stack s
@@ -227,14 +229,14 @@ doMove real m qs = do
 
 doNullMove :: CtxMon m => Game r m ()
 doNullMove = do
+    -- logMes "** doMove null"
     s <- get
     let !p0 = if null (stack s) then error "doNullMove" else head $ stack s
-        !ps = tail $ stack s
         !p' = reverseMoving p0
         !c = moving p'
         (!sts, feats) = evalState (posEval p' c) (evalst s)
         !p = p' { staticScore = sts, staticFeats = feats }
-    put s { stack = p : ps }
+    put s { stack = p : stack s }
 
 checkRemisRules :: CtxMon m => MyPos -> Game r m Bool
 checkRemisRules p = do
@@ -260,8 +262,10 @@ checkRepeatPv p _ = do
     where imagRevers t = isReversible t && not (realMove t)
 
 {-# INLINE undoMove #-}
-undoMove :: CtxMon m => Move -> Game r m ()
-undoMove m = modify $ \s -> s { stack = tail $ stack s }
+undoMove :: CtxMon m => Game r m ()
+undoMove = do
+    -- logMes "** undoMove"
+    modify $ \s -> s { stack = tail $ stack s }
 
 -- Tactical positions will be searched complete in quiescent search
 -- Currently only when in in check
