@@ -77,8 +77,8 @@ logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
 futilActive = True
 maxFutilDepth = 3
 futilMargins :: UArray Int Int
--- futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
-futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
+futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
+-- futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
 -- futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
 
 -- Parameters for quiescent search:
@@ -332,7 +332,7 @@ pvRootSearch a b d lastpath rmvs aspir = do
                      lift $ informStr "Failed low at root!"
                 return failedlow
               else do
-                 lift $ mapM_ (\m -> informStr $ "Root move: " ++ show m) (pvsl nstf)
+                 -- lift $ mapM_ (\m -> informStr $ "Root move: " ++ show m) (pvsl nstf)
                  albest' <- gets (albest . ronly)
                  (s, p) <- if s' >= b
                               then return (s', unseq $ pathMoves (cursc nstf))
