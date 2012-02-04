@@ -77,7 +77,8 @@ logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
 futilActive = True
 maxFutilDepth = 3
 futilMargins :: UArray Int Int
-futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
+futilMargins = array (1, 3) [ (1, 450), (2, 800), (3, 1500) ]	-- F0
+-- futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
 -- futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
 -- futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
 
@@ -451,7 +452,8 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
               else {-# SCC "nullWinResRoot" #-} do
                  -- here we didn't fail low and need re-search
                  pindent $ "Research! (" ++ show s1 ++ ")"
-                 let nst' = nst { ownnt = PVNode }
+                 -- let nst' = nst { ownnt = PVNode }
+                 let nst' = nst { forpv = True }
                  if reduced && d > 1
                     then do	-- re-search with no reduce for root moves
                       let d''= fst $! nextDepth (d+exd') (movno nst) False True
@@ -746,7 +748,8 @@ pvInnerLoopExten b d spec exd nst = do
                        let pvpath' = if nullSeq pvpath_ && hdeep > 0 && tp > 0 then Seq [e'] else pvpath_
                        --1-- let !pvpath = if hdeep > 0 && tp > 0 then Seq [] else (pvcont nst)
                        pvpath <- if useIID && nullSeq pvpath'
-                                    then bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
+                                    -- then bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
+                                    then bestMoveFromIID nst (-b) (-a) d' nulMoves
                                     else return pvpath'
                        !s1 <- pvSearch nst (-a-pathGrain) (-a) d' pvpath nulMoves
                               >>= return . pnextlev >>= checkPath nst d "cpl 9"
@@ -756,7 +759,8 @@ pvInnerLoopExten b d spec exd nst = do
                           else do
                             -- we need re-search
                             pindent $ "Research! (" ++ show s1 ++ ")"
-                            let nst' = nst { ownnt = PVNode }	-- always?
+                            -- let nst' = nst { ownnt = PVNode }	-- always?
+                            let nst' = nst { forpv = True }	-- always?
                             -- if reduced && (d >= lmrMinDFRes || inPv)
                             if reduced && d > 1
                                then do	-- re-search with no reduce (expensive!)

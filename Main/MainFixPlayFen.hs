@@ -17,7 +17,8 @@ import Moves.History
 import Eval.Eval
 import Hash.TransTab
 import Search.AlbetaTypes
-import Search.Albeta
+-- import Search.Albeta
+import Search.SearchAB
 import Search.SearchMonad
 import Config.ConfigClass
 import Config.Config

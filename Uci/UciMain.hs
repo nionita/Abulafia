@@ -243,8 +243,8 @@ getTimeParams cs lastsc c
           mtg = fromMaybe 0 $ findMovesToGo cs
 
 timeReserved   = 20	-- milliseconds reserved for move communication
-remTimeFracIni = 0.1	-- fraction of remaining time which we can consume at once - initial value
-remTimeFracFin = 0.9	-- same at final (when remaining time is near zero)
+remTimeFracIni = 0.01	-- fraction of remaining time which we can consume at once - initial value
+remTimeFracFin = 0.5	-- same at final (when remaining time is near zero)
 remTimeFracDev = remTimeFracFin - remTimeFracIni
 
 compTime tim tpm fixmtg lastsc

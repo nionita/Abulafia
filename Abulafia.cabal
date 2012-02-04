@@ -50,14 +50,14 @@ Executable PlotEvolve
   Main-is:	Main/EvolveToPlot.hs
   Build-depends:	base >= 4, filepath, regex-compat
 
-Executable FixPlayFen
-  Main-is:	Main/MainFixPlayFen.hs
-  Build-depends: base >= 4, array, mtl, parsec, transformers
-  GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
-               -funfolding-use-threshold=32
---               -fext-core
-  if flag(profile)
-    GHC-Options: -auto-all
+-- Executable FixPlayFen
+--   Main-is:	Main/MainFixPlayFen.hs
+--   Build-depends: base >= 4, array, mtl, parsec, transformers
+--   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
+--                -funfolding-use-threshold=32
+-- --               -fext-core
+--   if flag(profile)
+--     GHC-Options: -auto-all
 
 -- Executable BenchFixPlayFen
 --   Main-is:	Tests/TestFixPlayFen.hs
@@ -78,7 +78,7 @@ Executable Abulafia
   Main-is:	Main/MainAbulafia.hs
   Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
                  random, stream-fusion, directory, transformers
-  GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
+  GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=24
                -funfolding-use-threshold=32
   if flag(profile)
     C-sources: Cbits/rts_hooksp.c
