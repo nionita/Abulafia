@@ -50,19 +50,19 @@ Executable PlotEvolve
   Main-is:	Main/EvolveToPlot.hs
   Build-depends:	base >= 4, filepath, regex-compat
 
--- Executable FixPlayFen
---   Main-is:	Main/MainFixPlayFen.hs
---   Build-depends: base >= 4, array, mtl, parsec, transformers
---   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
---                -funfolding-use-threshold=32
--- --               -fext-core
---   if flag(profile)
---     GHC-Options: -auto-all
+Executable FixPlayFen
+  Main-is:	Main/MainFixPlayFen.hs
+  Build-depends: base >= 4, array, mtl, parsec, transformers
+  GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
+               -funfolding-use-threshold=32
+               -- -fext-core
+  if flag(profile)
+    GHC-Options: -auto-all
 
--- Executable BenchFixPlayFen
---   Main-is:	Tests/TestFixPlayFen.hs
---   Build-depends:	base >= 4, array, mtl, parsec, criterion
---   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4 -funfolding-use-threshold=32
+Executable BenchFixPlayFen
+  Main-is:	Tests/TestFixPlayFen.hs
+  Build-depends:	base >= 4, array, mtl, parsec, criterion
+  GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4 -funfolding-use-threshold=32
 
 Executable BenchTransTab
   Main-is:	Tests/TestTransTab.hs
@@ -97,18 +97,19 @@ Executable Abulafia
 --   Main-is:             Tests/PlaySTS.hs
 --   Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random, stream-fusion, bytestring, directory
 --   GHC-Options: -rtsopts -O2 -funbox-strict-fields -fspec-constr-count=4 -funfolding-use-threshold=32
--- 
--- Executable OptFeatVects
---   Main-is:             Tests/OptFeatVects.hs
---   Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random, stream-fusion, bytestring
---   GHC-Options: -O2 -funbox-strict-fields -fspec-constr-count=4
--- 
--- Executable GenFeatVects
---   Main-is:             Tests/GenFeatVects.hs
---   Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random, stream-fusion, bytestring
---   GHC-Options: -O2 -funbox-strict-fields
---   -- C-sources: Cbits/rts_hooks.c
--- 
+
+Executable OptFeatVects
+  Main-is:             Tests/OptFeatVects.hs
+  Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random,
+                       stream-fusion, bytestring
+  GHC-Options: -O2 -funbox-strict-fields -fspec-constr-count=24
+
+Executable GenFeatVects
+  Main-is:             Tests/GenFeatVects.hs
+  Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random,
+                       stream-fusion, bytestring, directory, transformers
+  GHC-Options: -O2 -funbox-strict-fields
+
 -- Executable Moves
 --   Main-is:             Tests/Moves.hs
 --   Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random, stream-fusion

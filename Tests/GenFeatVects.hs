@@ -15,8 +15,8 @@ import Moves.Board
 import Moves.Base
 import Moves.History
 import Eval.Eval
-import Hash.SimpleCache
-import Search.Albeta (Comm(..))
+import Hash.TransTab
+import Search.AlbetaTypes (Comm(..))
 import Search.SearchMonad
 import Config.ConfigClass
 import Config.Config
@@ -52,7 +52,7 @@ goReadWrite ih oh f = do
 perPos :: Once -> B.ByteString -> IO B.ByteString
 perPos (Once ha hi evs) fen' = do
     let fen = B.unpack fen'
-        pos = updatePos True $ posFromFen fen
+        pos = updatePos $ posFromFen fen
         inist = posToState pos ha hi evs
     putStrLn $ "Fen: " ++ fen
     -- Here: we should check if it's a final status or so...
@@ -64,19 +64,20 @@ oneLevel pos = do
     t <- getPos
     let c = moving pos
         (_, feats0) = evalState (posEval pos c) (evalst s)
-    mvs <- genMoves 0 0 False >>= return . filter (quiet t)	-- only quiescent moves
+    -- mvs <- genMoves 0 0 False >>= return . filter (quiet t)	-- only quiescent moves
+    (_, mvs) <- genMoves 0 0 False	-- take only the quiescent moves
     ff  <- forM mvs $ \m -> do
         r <- doMove False m False
         -- Here: we should check if it's a final status or so...
         t <- getPos
         let feats = staticFeats t
-        undoMove m
+        undoMove
         return feats
     return (feats0, ff)
 
 quiet :: MyPos -> Move -> Bool
 quiet p m = not (moveIsEnPas m || moveIsTransf m) && tabla p (toSquare m) == Empty
 
-tellInIO :: Comm Move Int -> IO ()
+tellInIO :: Comm -> IO ()
 tellInIO (LogMes s) = putStrLn $ "Info: " ++ s
 tellInIO _ = return ()

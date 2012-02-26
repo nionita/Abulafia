@@ -40,7 +40,7 @@ fitness samples p = return $! if minimize then val else -val
     where preferSmall = V.sum $ V.map abs p	-- to prefer small parameter vectors
           val = preferSmall + sum (map (poserr p) samples)
 
-poserr = poserr3
+poserr = poserr1
 
 -- This one to minimize the distance between the parent position and the best child
 poserr1 :: Vec -> (Vec, [Vec]) -> Double
@@ -48,7 +48,7 @@ poserr1 p (v0, vs)
     | null vs   = 0
     | otherwise = d * d
     where d  = (v0 <*> p) - l1 
-          l1 = - minimum (map (p <*>) vs)
+          l1 = maximum (map (p <*>) vs)
 
 -- This one to minimize/maximize the distance the best and the worst child
 poserr2 :: Vec -> (Vec, [Vec]) -> Double

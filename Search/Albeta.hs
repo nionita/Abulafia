@@ -49,6 +49,7 @@ minToRetr   = 1 -- minimum remaining depth to retrieve
 maxDepthExt = 3 -- maximum depth extension
 useNegHist  = False	-- when not cutting - negative history
 negHistMNo  = 1		-- how many moves get negative history
+useTTinPv   = False	-- retrieve from TT in PV?
 
 -- Parameters for late move reduction:
 lmrActive   = True
@@ -533,7 +534,8 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
                    -- lift $ informStr $ "Next info: " ++ pathOrig s
                    let sc = pathScore s
                        pa = unseq $ pathMoves s
-                       le = length pa
+                       -- le = length pa
+                       le = pathDepth s
                    informBest (scoreToExtern sc le) (draft sst) pa
                    let typ = 2	-- best move so far (score is exact)
                    when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ sc e nodes
@@ -714,22 +716,22 @@ pvInnerLoopExten b d spec exd nst = do
               ++ " exd' = " ++ show exd'
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
               ++ " forpv " ++ show (forpv nst)
-    if forpv nst
-       then do
-          pvpath <- if nullSeq pvpath_ then bestMoveFromHash else return pvpath_
-          pvSearch nst (-b) (-a) d' pvpath nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 14"
+    (hdeep, tp, hscore, e', nodes)
+        <- if (useTTinPv || not (forpv nst)) && d >= minToRetr
+              then {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
+              else return (-1, 0, 0, undefined, 0)
+    let ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'],
+                        pathOrig = "TT" }
+        a' = pathScore a
+        --2-- ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [] }
+        -- hs = - ttpath
+    if hdeep >= d && (tp == 2 || tp == 1 && hscore > a' || tp == 0 && hscore <= a')
+       then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes >> return ttpath
        else do
-          (hdeep, tp, hscore, e', nodes)
-              <- if d >= minToRetr
-                    then {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
-                    else return (-1, 0, 0, undefined, 0)
-          let ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'],
-                              pathOrig = "TT" }
-              a' = pathScore a
-              --2-- ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [] }
-              -- hs = - ttpath
-          if hdeep >= d && (tp == 2 || tp == 1 && hscore > a' || tp == 0 && hscore <= a')
-             then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes >> return ttpath
+          if forpv nst
+             then do
+                pvpath <- if nullSeq pvpath_ then bestMoveFromHash else return pvpath_
+                pvSearch nst (-b) (-a) d' pvpath nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 14"
              else do
                  when inPv $ lift $ informStr "Pruning in PV!"
                  -- futility pruning
