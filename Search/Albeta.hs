@@ -78,9 +78,9 @@ logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
 futilActive = True
 maxFutilDepth = 3
 futilMargins :: UArray Int Int
-futilMargins = array (1, 3) [ (1, 450), (2, 800), (3, 1500) ]	-- F0
+-- futilMargins = array (1, 3) [ (1, 450), (2, 800), (3, 1500) ]	-- F0
 -- futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
--- futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
+futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
 -- futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
 
 -- Parameters for quiescent search:
@@ -443,7 +443,8 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
            -- Only here we need IID, because previously, in PV, we had pvcont (from previous level)
            -- and only at depth 0 we have nothing, but then the depth is too low for IID
            pvpath <- if useIID && nullSeq pvpath'
-                        then {-# SCC "firstFromIIDRoot" #-} bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
+                        -- then {-# SCC "firstFromIIDRoot" #-} bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
+                        then {-# SCC "firstFromIIDRoot" #-} bestMoveFromIID nst (-b) (-a) d' nulMoves
                         else {-# SCC "firstFromC&HRoot" #-} return pvpath'
            s1 <- pvSearch nst (-a-pathGrain) (-a) d' pvpath nulMoves
                    >>= return . pnextlev >>= checkPath nst d' "cpl 2"
@@ -762,7 +763,7 @@ pvInnerLoopExten b d spec exd nst = do
                             -- we need re-search
                             pindent $ "Research! (" ++ show s1 ++ ")"
                             -- let nst' = nst { ownnt = PVNode }	-- always?
-                            let nst' = nst { forpv = True }	-- always?
+                            let nst' = nst { forpv = True }
                             -- if reduced && (d >= lmrMinDFRes || inPv)
                             if reduced && d > 1
                                then do	-- re-search with no reduce (expensive!)
