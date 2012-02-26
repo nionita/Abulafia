@@ -421,7 +421,7 @@ answer s = do
 
 -- Version and suffix:
 progVersion = "0.60"
-progVerSuff = "debu"
+progVerSuff = ""
 
 progLogName = "abulafia" ++ "-" ++ progVersion
                  ++ if null progVerSuff then ""
