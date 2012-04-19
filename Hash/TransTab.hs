@@ -8,7 +8,7 @@ module Hash.TransTab (
 import Data.Bits
 import Data.Maybe (fromMaybe)
 import Data.Int
-import Data.Ix
+-- import Data.Ix
 import Data.Word
 import Foreign.Marshal.Array
 import Foreign.Storable
@@ -22,6 +22,7 @@ import Struct.Struct
 type Index = Int
 type Mask = Word64
 
+cacheLineSize :: Int
 cacheLineSize = 64	-- this should be the size in bytes of a memory cache line on modern processors
 
 -- The data type Cell and its Storable instance is declared only for alignement purposes
@@ -43,6 +44,8 @@ data Cache
       }
 
 data PCacheEn = PCacheEn { lo, hi :: {-# UNPACK #-} !Word64 }	-- a packed TT entry
+
+pCacheEnSize :: Int
 pCacheEnSize = 2 * sizeOf (undefined :: Word64)
 
 instance Storable PCacheEn where
@@ -90,8 +93,11 @@ data CacheEn = CacheEn {
                }
 --}
 
+part3Mask :: Mask
 part3Mask = 0x03 :: Mask	-- the cell has 4 entries (other option: 8)
-minEntries = 2 ^ 18 :: Int
+
+minEntries :: Int
+minEntries = 2 ^ 18
 
 -- Create a new transposition table with a given number of entries
 -- The given number will be rounded up to the next power of 2
@@ -141,17 +147,17 @@ readCache tt zkey = do
 retrieveEntry :: Cache -> ZKey -> IO (Maybe PCacheEn)
 retrieveEntry tt zkey = do
     let (bas, idx) = zKeyToCellIndex tt zkey
-    retrieve idx bas 4
+    retrieve idx bas (4::Int)
     where retrieve idx crt tries = go crt tries
-              where go crt tries = do
-                    pCE <- peek crt
+              where go crt0 tries0 = do
+                    pCE <- peek crt0
                     if isSameEntry tt zkey idx pCE
                        then return (Just pCE)
-                       else if tries <= 1
+                       else if tries0 <= 1
                                then return Nothing
                                else do
-                                   let !crt1 = crt `plusPtr` pCacheEnSize
-                                       !tries1 = tries - 1
+                                   let !crt1 = crt0 `plusPtr` pCacheEnSize
+                                       !tries1 = tries0 - 1
                                    go crt1 tries1
 
 -- Write the position in the table
@@ -168,18 +174,18 @@ writeCache tt zkey depth tp score move nodes = do
     let (bas, idx) = zKeyToCellIndex tt zkey
         gen = gener tt
         pCE = quintToCacheEn tt zkey depth tp score move nodes
-    store gen pCE idx bas bas 4
+    store gen pCE idx bas bas (4::Int)
     where store gen pCE idx crt rep tries = go crt rep tries
-              where go crt rep tries = do
-                        cpCE <- peek crt
+              where go crt0 rep0 tries0 = do
+                        cpCE <- peek crt0
                         if isSameEntry tt zkey idx cpCE
-                           then poke crt pCE	 -- here we found the same entry: just update
-                           else if tries <= 1
-                               then poke rep pCE -- replace the weakest entry with the current one
+                           then poke crt0 pCE	 -- here we found the same entry: just update
+                           else if tries0 <= 1
+                               then poke rep0 pCE -- replace the weakest entry with the current one
                                else do	-- search further
-                                   rep1 <- chooseReplaceEntry gen crt rep
-                                   let !crt1 = crt `plusPtr` pCacheEnSize
-                                       !tries1 = tries - 1
+                                   rep1 <- chooseReplaceEntry gen crt0 rep0
+                                   let !crt1 = crt0 `plusPtr` pCacheEnSize
+                                       !tries1 = tries0 - 1
                                    go crt1 rep1 tries1
 
 -- Here we implement the logic which decides which entry is weaker
@@ -195,7 +201,7 @@ chooseReplaceEntry gen crt rep = if rep == crt then return rep else do
            if betterpart repe > betterpart crte
               then return crt
               else return rep
-    where generation = (.&. 0x3F) . lo
+    where generation = (.&. 0x2F) . lo
           betterpart = lo	-- there is some noise at the end of that word (26 bits), but we don't care
 
 quintToCacheEn :: Cache -> ZKey -> Int -> Int -> Int -> Move -> Int -> PCacheEn
@@ -230,13 +236,15 @@ nextPowOf2 x = bit (l - 1)
 ----------- QuickCheck -------------
 newtype Quint = Q (Int, Int, Int, Move, Int) deriving Show
 
+mvm = (1 `shiftL` 19) - 1 :: Word32
+
 instance Arbitrary Quint where
     arbitrary = do
         sc <- choose (-20000, 20000)
         ty <- choose (0, 2)
         de <- choose (0, 31)
-        mv <- arbitrary `suchThat` ( <= 2^19-1)
-        no <- arbitrary `suchThat` ( >= 0)
+        mv <- arbitrary `suchThat` (<= mvm)
+        no <- arbitrary `suchThat` (>= 0)
         return $ Q (de, ty, sc, Move mv, no)
 
 {--
@@ -247,13 +255,15 @@ instance Arbitrary Gener where
         return $ G g
 --}
 
-prop_Inverse tt zkey gen (Q q@(de, ty, sc, mv, no))
+prop_Inverse :: Cache -> ZKey -> Int -> Quint -> Bool
+prop_Inverse tt zkey _ (Q q@(de, ty, sc, mv, no))	-- unused: gen
     = q == cacheEnToQuint (quintToCacheEn tt zkey de ty sc mv no)
 
+checkProp :: IO ()
 checkProp = do
     tt <- newCache defaultConfig
     let zkey = 0
-        gen  = 0
+        gen  = 0 :: Int
     putStrLn $ "Fix zkey & gen: " ++ show zkey ++ ", " ++ show gen
     -- quickCheck $ prop_Inverse tt zkey gen
     verboseCheck $ prop_Inverse tt zkey gen

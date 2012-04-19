@@ -15,18 +15,18 @@ module Moves.Base (
 ) where
 
 import Data.Array.IArray
-import Data.Array.Unboxed
+-- import Data.Array.Unboxed
 import Debug.Trace
 import Control.Exception (assert)
-import Data.Word
+-- import Data.Word
 import Data.Bits
 import Data.List
-import Data.Char
-import Data.Maybe
+-- import Data.Char
+-- import Data.Maybe
 import Control.Monad.State.Lazy
-import Control.Monad.Reader
+-- import Control.Monad.Reader
 import Data.Ord (comparing)
-import Data.Array.IO
+-- import Data.Array.IO
 import System.Random
 
 import Moves.BaseTypes
@@ -36,7 +36,7 @@ import Struct.Struct
 import Hash.TransTab
 import Struct.Status
 import Moves.Board
-import Moves.BitBoard
+-- import Moves.BitBoard
 import Moves.SEE
 import Eval.Eval
 import Moves.ShowMe
@@ -51,6 +51,7 @@ nearmate :: Int -> Bool
 nearmate i = i >= mateScore - 255 || i <= -mateScore + 255
 
 -- instance Edge Move where
+special :: Move -> Bool
 {-# INLINE special #-}
 special = moveIsSpecial
 
@@ -79,16 +80,22 @@ instance CtxMon m => Node (Game r m) where
     timeout = isTimeout
 
 -- Some options and parameters:
+debug, useHash, learnEval :: Bool
 debug       = False
 useHash     = True
 learnEval   = False
+
+depthForMovesSortPv, depthForMovesSort, scoreDiffEqual :: Int
 depthForMovesSortPv = 1	-- use history for sorting moves when pv or cut nodes
 depthForMovesSort   = 1	-- use history for sorting moves
 scoreDiffEqual      = 4 -- under this score difference moves are considered to be equal (choose random)
 -- scoreDiffEqual      = 0 -- under this score difference moves are considered to be equal (choose random)
+
+minLearnDepth, maxLearnDepth :: Int
 minLearnDepth = 1
 maxLearnDepth = 1
 
+mateScore :: Int
 mateScore = 20000
 
 getNodes :: CtxMon m => Game r m Int
@@ -115,9 +122,13 @@ posToState p c h e = MyState {
 posNewSearch :: MyState -> MyState
 posNewSearch p = p { hash = newGener (hash p) }
 
-debugGen = False
+-- debugGen :: Bool
+-- debugGen = False
 
+captWLDepth :: Int
 captWLDepth = 5		-- so far 5 seems to be best (after ~100 games)
+
+loosingLast :: Bool
 loosingLast = False
 
 genMoves :: CtxMon m => Int -> Int -> Bool -> Game r m ([Move], [Move])
@@ -148,6 +159,7 @@ genMoves depth absdp pv = do
                                 else (l1 ++ l2w ++ l2l, l0 ++ l3)
                         else (l1 ++ l2, l0 ++ l3)
 
+onlyWinningCapts :: Bool
 onlyWinningCapts = True
 
 -- Generate only tactical moves, i.e. promotions, captures & check escapes
@@ -157,7 +169,7 @@ genTactMoves = do
     let !c = moving p
         l1 = map (genmvT p) $ genMoveTransf p c
         l2 = map (genmv True p) $ genMoveCapt p c
-        lnc = map (genmv True p) $ genMoveNCaptToCheck p c
+        -- lnc = map (genmv True p) $ genMoveNCaptToCheck p c
         (pl2, _) = genMoveCaptWL p c
         l2w = map (genmv True p) pl2
         -- l2w = map (genmv True p) $ genMoveCaptSEE p c
@@ -178,10 +190,10 @@ sortMovesFromHist d mvs = do
     let (posi, zero) = partition ((/=0) . snd) $ zip mvs mvsc
     return $! map fst $ sortBy (comparing snd) posi ++ zero
 
-massert :: CtxMon m => String -> Game r m Bool -> Game r m ()
-massert s mb = do
-    b <- mb
-    if b then return () else error s
+-- massert :: CtxMon m => String -> Game r m Bool -> Game r m ()
+-- massert s mb = do
+--     b <- mb
+--     if b then return () else error s
 
 {-# INLINE statNodes #-}
 statNodes :: CtxMon m => Game r m ()
@@ -250,16 +262,16 @@ checkRemisRules p = do
             (_:_:_)    -> return True
             _          -> return False
 
-checkRepeatPv :: CtxMon m => MyPos -> Bool -> Game r m Bool
-checkRepeatPv _ False = return False
-checkRepeatPv p _ = do
-    s <- get
-    let search = map zobkey $ takeWhile imagRevers $ stack s
-        equal  = filter (== zobkey p) search	-- if keys are equal, pos is equal
-    case equal of
-        (_:_) -> return True
-        _     -> return False
-    where imagRevers t = isReversible t && not (realMove t)
+-- checkRepeatPv :: CtxMon m => MyPos -> Bool -> Game r m Bool
+-- checkRepeatPv _ False = return False
+-- checkRepeatPv p _ = do
+--     s <- get
+--     let search = map zobkey $ takeWhile imagRevers $ stack s
+--         equal  = filter (== zobkey p) search	-- if keys are equal, pos is equal
+--     case equal of
+--         (_:_) -> return True
+--         _     -> return False
+--     where imagRevers t = isReversible t && not (realMove t)
 
 {-# INLINE undoMove #-}
 undoMove :: CtxMon m => Game r m ()
@@ -319,15 +331,15 @@ materVal0 = do
                    White -> m
                    _     -> -m
 
-quiet :: MyPos -> Bool
-quiet p = at .&. ta == 0
-    where (!at, !ta) = if moving p == White then (whAttacs p, black p) else (blAttacs p, white p)
+-- quiet :: MyPos -> Bool
+-- quiet p = at .&. ta == 0
+--     where (!at, !ta) = if moving p == White then (whAttacs p, black p) else (blAttacs p, white p)
 
 learnEvals :: CtxMon m => Int -> Int -> Int -> Int -> Game r m ()
 learnEvals depth typ score score0 = do
     s <- get
     t <- getPos
-    let sts = staticScore t
+    -- let sts = staticScore t
         -- fscore = fLearnMatEnPri (staticFeats t)
     -- if not learnEval || not (quiet t) || null (staticFeats t)
     --   || typ == 1 && sts >= score || typ == 0 && sts <= score || typ == 2 && sts == score
@@ -368,7 +380,7 @@ currDSP = if not useHash then return empRez else do
 
 {-# INLINE storeSearch #-}
 storeSearch :: CtxMon m => Int -> Int -> Int -> Move -> Int -> Game r m ()
-storeSearch deep tp sc best nodes = if not useHash then return () else do
+storeSearch deep tp sc bestm nds = if not useHash then return () else do
     s <- get
     p <- getPos
     -- when (sc `mod` 4 /= 0 && tp == 2) $ liftIO $ do
@@ -376,7 +388,7 @@ storeSearch deep tp sc best nodes = if not useHash then return () else do
     --         ++ " best = " ++ show best ++ " nodes = " ++ show nodes
         -- putStrLn $ "info string score in position: " ++ show (staticScore p)
     -- We use the type: 0 - upper limit, 1 - lower limit, 2 - exact score
-    liftIO $ writeCache (hash s) (zobkey p) deep tp sc best nodes
+    liftIO $ writeCache (hash s) (zobkey p) deep tp sc bestm nds
     -- when debug $ lift $ ctxLog "Debug" $ "*** storeSearch (deep/tp/sc/mv) " ++ show deep
     --      ++ " / " ++ show tp ++ " / " ++ show sc ++ " / " ++ show best
     --      ++ " status: " ++ show st ++ " (" ++ show (zobkey p) ++ ")"
@@ -384,7 +396,7 @@ storeSearch deep tp sc best nodes = if not useHash then return () else do
 
 -- History heuristic table update when beta cut move
 betaMove0 :: CtxMon m => Bool -> Int -> Int -> Move -> Game r m ()
-betaMove0 good dp absdp m = do
+betaMove0 good _ absdp m = do	-- dummy: depth
     s <- get
     t <- getPos
     -- liftIO $ toHist (hist s) good (fromSquare m) (toSquare m) absdp
@@ -416,6 +428,7 @@ choose0 _    pvs = case pvs of
             else do
                r <- liftIO $ getStdRandom (randomR (0, len - 1))
                return $! equal !! r
+    []      -> return (0, [])	-- just for Wall
 
 logMes :: CtxMon m => String -> Game r m ()
 logMes s = SM.lift $ tellCtx . LogMes $ s

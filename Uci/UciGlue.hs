@@ -20,7 +20,10 @@ instance CtxMon CtxIO where
     timeCtx = lift currMilli
 
 -- Parameter of the search at this level:
+aspirWindow :: Int
 aspirWindow   = 24	-- initial aspiration window
+
+showEvalStats :: Bool
 showEvalStats = False	-- show eval statistics in logfile
 
 -- One iteration in the search for the best move
@@ -49,20 +52,6 @@ bestMoveCont tiefe sttime stati lastsc lpv rmvs = do
     --     ++ show (rhits math) ++ ", read colls " ++ show (rcoll math)
     --     ++ ", node writes " ++ show (nwrites math) ++ ", write colls "
     --     ++ show (wcoll math)
-{--
-    let ha = hash statf
-    (xbu, xwi, xrt, xwt, xnr, xnw, xrc, xwc, xwr) <- liftIO $ readCacheStats ha
-    ctxLog "Info" $! "Hash statistics:"
-                 ++ "busy: " ++ show xbu
-                 ++ ", window: " ++ show xwi
-                 ++ ", read tries: " ++ show xrt
-                 ++ ", reads: " ++ show xnr
-                 ++ ", read collisions: " ++ show xrc
-                 ++ ", write tries: " ++ show xwt
-                 ++ ", writes: " ++ show xnw
-                 ++ ", write collisions: " ++ show xwc
-                 ++ ", write replaces: " ++ show xwr
---}
     if learnEval && esSamples (evalst statf) > 0
         then do
             let evst = evalst statf
@@ -77,9 +66,9 @@ bestMoveCont tiefe sttime stati lastsc lpv rmvs = do
             when (esIParams evst /= esIParams evstf) $ do
                 ctxLog "Info" $! "Eval params I old / new (only changes):"
                 forM_ (zip paramNames $ zip (esIParams evst) (esIParams evstf)) $
-                    \(n, (vo, vn))
+                    \(n', (vo, vn))
                         -> when (vn /= vo) $
-                                ctxLog "Info" $! n ++ "\t" ++ show vo ++ "\t" ++ show vn
+                                ctxLog "Info" $! n' ++ "\t" ++ show vo ++ "\t" ++ show vn
             when (showEvalStats && tiefe >= 6) $
                 ctxLog "Info" $! "Eval statistics: " ++ "\n"
                    ++ unlines [ "dpt " ++ show d ++ ": " ++ showline li
@@ -90,6 +79,7 @@ bestMoveCont tiefe sttime stati lastsc lpv rmvs = do
     where showline = unwords . map show
           getline a l = [ a!(l, i) | i <- [0..maxStatsIntvs]]
 
+talkToContext :: Comm -> CtxIO ()
 talkToContext (LogMes s)       = ctxLog "Info" s
 talkToContext (BestMv a b c d) = informGui a b c d
 talkToContext (CurrMv a b)     = informGuiCM a b

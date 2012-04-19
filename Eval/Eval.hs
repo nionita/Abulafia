@@ -17,8 +17,8 @@ import Struct.Status
 import Moves.Moves
 import Moves.BitBoard
 import Moves.Muster
-import Moves.Board
-import Moves.SEE
+-- import Moves.Board
+-- import Moves.SEE
 import Eval.Gradient
 import Eval.BasicEval
 
@@ -47,8 +47,13 @@ class EvalItem a where
     evalItemNDL :: a -> [(String, (Double, (Double, Double)))]	-- Name, Default, Limits
 
 -- some handy functions for eval item types:
+paramName :: (a, b) -> a
 paramName    = fst
+
+paramDefault :: (a, (b, c)) -> b
 paramDefault = fst . snd
+
+paramLimits :: (a, (b, c)) -> c
 paramLimits  = snd . snd
 
 data AnyEvalItem = forall a . EvalItem a => EvIt a
@@ -57,6 +62,7 @@ data AnyEvalItem = forall a . EvalItem a => EvIt a
 -- Every item can have one or more parameters which have a name, a default value
 -- and a range of values (values are kept for learning purposes as doubles,
 -- but for the evaluation itself one copy of integer parameter values is also kept)
+evalItems :: [AnyEvalItem]
 evalItems = [ EvIt Material,	-- material balance (i.e. white - black material
               -- EvIt EnPrise,	-- when not quiescent - pieces en prise
               EvIt Redundance,	-- bishop pair and rook redundance
@@ -74,21 +80,27 @@ evalItems = [ EvIt Material,	-- material balance (i.e. white - black material
               EvIt PassPawns	-- pass pawns
             ]
 
+parDim :: Int
 parDim = sum $ map evalLen evalItems
     where evalLen (EvIt a) = length $ evalItemNDL a
 
+parLims :: [(Double, Double)]
 parLims = concatMap evalLims evalItems
     where evalLims (EvIt a) = map paramLimits $ evalItemNDL a
 
+zeroParam :: DParams
 zeroParam = replicate parDim 0	-- theese are doubles
+
+zeroFeats :: [Int]
 zeroFeats = replicate parDim 0	-- theese are ints
 
 evalItemPar :: EvalItem a => a -> DParams -> (String, Double) -> Maybe DParams
-evalItemPar a dps (s, v) = lookup s (zip lu [0..]) >>= \i -> Just (replace dps i v)
+evalItemPar a dps (s, v) = lookup s (zip lu posi) >>= \i -> Just (replace dps i v)
     where lu = map paramName $ evalItemNDL a
           replace []       _ _ = []
-          replace (_ : ds) 0 v = v : ds
-          replace (d : ds) i v = d : replace ds (i-1) v
+          replace (_ : ds) 0 v' = v' : ds
+          replace (d : ds) i v' = d : replace ds (i-1) v'
+          posi = [0..] :: [Int]
 
 oneParam :: [(AnyEvalItem, DParams)] -> (String, Double) -> [(AnyEvalItem, DParams)]
 oneParam [] _ = []
@@ -109,17 +121,23 @@ paramNames = concatMap pnames evalItems
 
 ------------------------------------------------------------------
 -- Parameters of this module ------------
+granCoarse, granCoarse2, granCoarseM, maxStatsDepth, maxStatsIntvs :: Int
 granCoarse    = 4	-- coarse granularity
 granCoarse2   = granCoarse `div` 2
 granCoarseM   = complement (granCoarse - 1)
 -- divFactor     = 4	-- for kind of fractional calculation
 maxStatsDepth = 12	-- for error statistics of the eval function - maximum depth
 maxStatsIntvs = 20	-- number of difference interval
-statsIntv     = 25	-- difference interval length
+-- statsIntv     = 25	-- difference interval length
+
+subOptimal :: Double
 subOptimal    = 2	-- optimal step is so many times smaller
+
+samplesPerChange :: Int
 samplesPerChange = 10	-- number of samples before a parameter change occurs
 -----------------------------------------------
 
+initEvalState :: Bool -> [(String, Double)] -> EvalState
 initEvalState learn sds = EvalState {
         esLearning = learn,
         esSamples = 0, esSteps = 0,
@@ -133,6 +151,7 @@ initEvalState learn sds = EvalState {
     }
     where params = inLimits parLims $ allParams sds
 
+initEvalStateV :: DParams -> EvalState
 initEvalStateV pv = EvalState {
         esLearning = False,
         esSamples = 0, esSteps = 0,
@@ -147,12 +166,14 @@ initEvalStateV pv = EvalState {
     where params = inLimits parLims pv
 
 inLimits :: Limits -> DParams -> DParams
-inLimits l p = map inlim $ zip l p
+inLimits ls ps = map inlim $ zip ls ps
     where inlim ((mi, ma), p) = max mi $ min ma p
 
-normalize :: DParams -> DParams
-normalize (a:as) = 1 : map (/ a) as
+-- normalize :: DParams -> DParams
+-- normalize (a:as) = 1 : map (/ a) as
+-- normalize []     = []
 
+matesc :: Int
 matesc = 20000 - 255	-- attention, this is also defined in Base.hs!!
 
 posEval :: MyPos -> Color -> State EvalState (Int, [Int])
@@ -162,22 +183,26 @@ posEval !p !c = do
         !sc'  = if sc''' > matesc then matesc else if sc''' < -matesc then -matesc else sc'''
         !sc'' = if granCoarse > 0 then (sc' + granCoarse2) .&. granCoarseM else sc'
         !sc = if c == White then sc'' else -sc''
-    return $ sc `seq` (sc, feat)
+    return $! sc `seq` (sc, feat)
 
+evalDispatch :: MyPos -> Color -> EvalState -> (Int, [Int])
 evalDispatch p c sti
     | pawns p == 0 = evalNoPawns p c sti
     | pawns p .&. white p == 0 ||
       pawns p .&. black p == 0 = evalSideNoPawns p c sti
     | otherwise    = normalEval p c sti
 
+itemEval :: MyPos -> Color -> AnyEvalItem -> [Int]
 itemEval p c (EvIt a) = evalItem p c a
 
+normalEval :: MyPos -> Color -> EvalState -> (Int, [Int])
 normalEval p c sti = (sc, feat)
     where !feat = concatMap (itemEval p c) evalItems
           !sc   = if esLearning sti
                   then round $ map fromIntegral feat <*> esDParams sti
                   else feat <*> esIParams sti
 
+evalSideNoPawns :: MyPos -> Color -> EvalState -> (Int, [Int])
 evalSideNoPawns p c sti
     | npwin && insufficient = (0, zeroFeats)
     | otherwise             = (nsc, feats)
@@ -191,6 +216,7 @@ evalSideNoPawns p c sti
           majorcnt  = popCount1 $ (queens p .|. rooks p) .&. col
 
 -- These evaluation function distiguishes between some known finals with no pawns
+evalNoPawns :: MyPos -> Color -> EvalState -> (Int, [Int])
 evalNoPawns p c sti = (sc, zeroFeats)
     where !sc | onlykings   = 0
               | kmk || knnk = 0		-- one minor or two knights
@@ -212,8 +238,10 @@ evalNoPawns p c sti = (sc, zeroFeats)
           major    = queens p .|. rooks p
           majorcnt = popCount1 major
 
+winBonus :: Int
 winBonus = 200	-- when it's known win
 
+mateKBBK :: MyPos -> Bool -> Int
 mateKBBK p wwin = mater p + if wwin then sc else -sc
     where kadv = if wwin then kb else kw
           kw = kingSquare (kings p) (white p)
@@ -222,6 +250,7 @@ mateKBBK p wwin = mater p + if wwin then sc else -sc
           distc = centerDistance kadv
           sc = winBonus + distc*distc - distk*distk
 
+mateKBNK :: MyPos -> Bool -> Int
 mateKBNK p wwin = mater p + if wwin then sc else -sc
     where kadv = if wwin then kb else kw
           kw = kingSquare (kings p) (white p)
@@ -231,6 +260,7 @@ mateKBNK p wwin = mater p + if wwin then sc else -sc
           wbish = bishops p .&. lightSquares /= 0
           sc = winBonus + distc*distc - distk*distk
 
+mateKMajxK :: MyPos -> Bool -> Int
 mateKMajxK p wwin = mater p + if wwin then sc else -sc
     where kadv = if wwin then kb else kw
           kw = kingSquare (kings p) (white p)
@@ -246,6 +276,7 @@ squareDistance f t = max (abs (fr - tr)) (abs (fc - tc))
           (tr, tc) = t `divMod` 8
 
 -- This center distance should be pre calculated
+centerDistance :: Int -> Int
 centerDistance sq = max (r - 4) (3 - r) + max (c - 4) (3 - c)
     where (r, c) = sq `divMod` 8
 
@@ -266,7 +297,7 @@ adjEval = do
         ndp  = inLimits parLims ( esDParams sti <+> corr )
         -- ndp  = esDParams sti <+> corr
         ns   = esSteps sti + 1
-        (alpha, amt, ang) = nextGradStep (esAlpha sti) (esDeviation sti) (esLastDev sti)
+        (_, amt, ang) = nextGradStep (esAlpha sti) (esDeviation sti) (esLastDev sti)
         stf = sti { esDParams = ndp, esIParams = map round ndp,
                     esSamples = 0, esDeviation = zeroParam, esSteps = ns,
                     -- esAlpha = alpha,
@@ -322,16 +353,13 @@ instance EvalItem KingSafe where
 -- and give a bonus (for positive value, which means we stay better the them)
 kingSafe :: MyPos -> Color -> [Int]
 kingSafe p _ = [ksafe]
-    where -- !wdefends = popCount1 $ whKAttacs p .&. whAttacs p -- wrong!!!
-          !battacs  = popCount1 $ whKAttacs p .&. blAttacs p
-          -- !bdefends = popCount1 $ blKAttacs p .&. blAttacs p -- wrong!!!
+    where !battacs  = popCount1 $ whKAttacs p .&. blAttacs p
           !wattacs  = popCount1 $ blKAttacs p .&. whAttacs p
-          -- !ksafe = max ksmargin (wdefends - battacs) + min (-ksmargin) (wattacs - bdefends)
-          ksmargin = 4
           !ksafe = wattacs*wattacs - battacs*battacs
 
 kingSquare :: BBoard -> BBoard -> Square
-kingSquare kings colorp = head $ bbToSquares $ kings .&. colorp
+kingSquare kingsb colorp = head $ bbToSquares $ kingsb .&. colorp
+{-# INLINE kingSquare #-}
 
 ------ Material ------
 data Material = Material
@@ -366,10 +394,10 @@ kingOpen p _ = own `seq` adv `seq` [own, adv]
           paw = pawns p
           msq = kingSquare (kings p) $ white p
           ysq = kingSquare (kings p) $ black p
-          comb !ob !or !oq wb wr =
-                if ob /= 0 then ob * wb else 0
-              + if or /= 0 then or * wr else 0
-              + if oq /= 0 then oq * (wb + wr) else 0
+          comb !oB !oR !oQ wb wr =
+                if oB /= 0 then oB * wb else 0
+              + if oR /= 0 then oR * wr else 0
+              + if oQ /= 0 then oQ * (wb + wr) else 0
           own = comb mopbishops moprooks mopqueens mwb mwr
           adv = comb yopbishops yoprooks yopqueens ywb ywr
 
@@ -410,14 +438,12 @@ mobDiff p _ = [n, b, r, q]
           !whQ = popCount1 $ whQAttacs p `less` (white p .|. blA2)
           !blA1 = blPAttacs p .|. blNAttacs p .|. blBAttacs p
           !blA2 = blA1 .|. blRAttacs p
-          !blA3 = blA2 .|. blQAttacs p
           !blN = popCount1 $ blNAttacs p `less` (black p .|. whPAttacs p)
           !blB = popCount1 $ blBAttacs p `less` (black p .|. whPAttacs p)
           !blR = popCount1 $ blRAttacs p `less` (black p .|. whA1)
           !blQ = popCount1 $ blQAttacs p `less` (black p .|. whA2)
           !whA1 = whPAttacs p .|. whNAttacs p .|. whBAttacs p
           !whA2 = whA1 .|. whRAttacs p
-          !whA3 = whA2 .|. whQAttacs p
           !n = whN - blN
           !b = whB - blB
           !r = whR - blR
@@ -438,54 +464,54 @@ centerDiff p _ = [wb]
           center = 0x0000003C3C000000
 
 ------ En prise ------
-data EnPrise = EnPrise
-
-instance EvalItem EnPrise where
-    evalItem p c _ = enPrise p c
-    evalItemNDL _  = [("enPriseFrac", (10, (0, 100)))]
+--data EnPrise = EnPrise
+--
+--instance EvalItem EnPrise where
+--    evalItem p c _ = enPrise p c
+--    evalItemNDL _  = [("enPriseFrac", (10, (0, 100)))]
 
 -- Here we could also take care who is moving and even if it's check - now we don't
-enPrise :: MyPos -> Color -> IParams
-enPrise p _ = [epp]
-    where !ko = popCount1 $ white p .&. knights p .&. blAttacs p
-          !ka = popCount1 $ black p .&. knights p .&. whAttacs p
-          !bo = popCount1 $ white p .&. bishops p .&. blAttacs p
-          !ba = popCount1 $ black p .&. bishops p .&. whAttacs p
-          !ro = popCount1 $ white p .&. rooks p .&. blAttacs p
-          !ra = popCount1 $ black p .&. rooks p .&. whAttacs p
-          !qo = popCount1 $ white p .&. queens p .&. blAttacs p
-          !qa = popCount1 $ black p .&. queens p .&. whAttacs p
-          !k = (ka - ko) * matPiece White Knight
-          !b = (ba - bo) * matPiece White Bishop
-          !r = (ra - ro) * matPiece White Rook
-          !q = (qa - qo) * matPiece White Queen
-          !epp = (k + b + r + q) `div` 100
+--enPrise :: MyPos -> Color -> IParams
+--enPrise p _ = [epp]
+--    where !ko = popCount1 $ white p .&. knights p .&. blAttacs p
+--          !ka = popCount1 $ black p .&. knights p .&. whAttacs p
+--          !bo = popCount1 $ white p .&. bishops p .&. blAttacs p
+--          !ba = popCount1 $ black p .&. bishops p .&. whAttacs p
+--          !ro = popCount1 $ white p .&. rooks p .&. blAttacs p
+--          !ra = popCount1 $ black p .&. rooks p .&. whAttacs p
+--          !qo = popCount1 $ white p .&. queens p .&. blAttacs p
+--          !qa = popCount1 $ black p .&. queens p .&. whAttacs p
+--          !k = (ka - ko) * matPiece White Knight
+--          !b = (ba - bo) * matPiece White Bishop
+--          !r = (ra - ro) * matPiece White Rook
+--          !q = (qa - qo) * matPiece White Queen
+--          !epp = (k + b + r + q) `div` 100
 
 ------ Castle rights ------
-data Castles = Castles
-
-instance EvalItem Castles where
-    evalItem p c _ = castles p c
-    evalItemNDL _ = [("castlePoints", (0, (-50, 200)))]
+--data Castles = Castles
+--
+--instance EvalItem Castles where
+--    evalItem p c _ = castles p c
+--    evalItemNDL _ = [("castlePoints", (0, (-50, 200)))]
 
 -- This will have to be replaced, because not the castle rights are important, but
 -- the king safety and the rook mobility
-castles :: MyPos -> Color -> IParams
-castles p _ = [crd]
-    where (ok, ork, orq, ak, ark, arq) = (4, 7, 0, 60, 63, 56)
-          !epc = epcas p
-          !okmoved = not $ epc `testBit` ok
-          !akmoved = not $ epc `testBit` ak
-          !orkc = if epc `testBit` ork then 1 else 0
-          !arkc = if epc `testBit` ark then 1 else 0
-          !orqc = if epc `testBit` orq then 1 else 0
-          !arqc = if epc `testBit` arq then 1 else 0
-          !co = if okmoved then 0 else orkc + orqc
-          !ca = if akmoved then 0 else arkc + arqc
-          !cdiff = co - ca
-          !qfact = popCount1 $ queens p
-          !rfact = popCount1 $ rooks p
-          !crd = cdiff * (2 * qfact + rfact)
+--castles :: MyPos -> Color -> IParams
+--castles p _ = [crd]
+--    where (ok, ork, orq, ak, ark, arq) = (4, 7, 0, 60, 63, 56)
+--          !epc = epcas p
+--          !okmoved = not $ epc `testBit` ok
+--          !akmoved = not $ epc `testBit` ak
+--          !orkc = if epc `testBit` ork then 1 else 0
+--          !arkc = if epc `testBit` ark then 1 else 0
+--          !orqc = if epc `testBit` orq then 1 else 0
+--          !arqc = if epc `testBit` arq then 1 else 0
+--          !co = if okmoved then 0 else orkc + orqc
+--          !ca = if akmoved then 0 else arkc + arqc
+--          !cdiff = co - ca
+--          !qfact = popCount1 $ queens p
+--          !rfact = popCount1 $ rooks p
+--          !crd = cdiff * (2 * qfact + rfact)
 
 ------ Last Line ------
 data LastLine = LastLine
@@ -501,18 +527,18 @@ lastline p _ = [cdiff]
           !cdiff = bll - whl
 
 ------ King Mobility when alone ------
-data KingMob = KingMob
-
-instance EvalItem KingMob where
-    evalItem p c _ = kingAlone p c
-    evalItemNDL _ = [("advKingAlone", (26, (0, 100)))]
-
-kingAlone :: MyPos -> Color -> IParams
-kingAlone p _ = [kmb]
-    where !kmb = if okalone then 8 - okmvs + together else 0
-          !together = popCount1 $ whKAttacs p .&. blKAttacs p
-          !okmvs = popCount1 $ blAttacs p
-          !okalone = black p `less` kings p == 0
+--data KingMob = KingMob
+--
+--instance EvalItem KingMob where
+--    evalItem p c _ = kingAlone p c
+--    evalItemNDL _ = [("advKingAlone", (26, (0, 100)))]
+--
+--kingAlone :: MyPos -> Color -> IParams
+--kingAlone p _ = [kmb]
+--    where !kmb = if okalone then 8 - okmvs + together else 0
+--          !together = popCount1 $ whKAttacs p .&. blKAttacs p
+--          !okmvs = popCount1 $ blAttacs p
+--          !okalone = black p `less` kings p == 0
 
 ------ Redundance: bishop pair and rook redundance ------
 data Redundance = Redundance
@@ -522,6 +548,7 @@ instance EvalItem Redundance where
     evalItemNDL _ = [("bishopPair",       (50,  (0, 100))),
                      ("redundanceRook",   (-15,  (-50, 0))) ]
 
+evalRedundance :: MyPos -> Color -> [Int]
 evalRedundance p _ = [bp, rr]
     where !wbl = bishops p .&. white p .&. lightSquares
           !wbd = bishops p .&. white p .&. darkSquares
@@ -543,6 +570,7 @@ instance EvalItem NRCorrection where
     evalItem p _ _ = evalNRCorrection p
     evalItemNDL _  = [("nrCorrection", (1, (0, 1)))]
 
+evalNRCorrection :: MyPos -> [Int]
 evalNRCorrection p = [md]
     where !wpc = popCount1 (pawns p .&. white p) - 5
           !bpc = popCount1 (pawns p .&. black p) - 5
@@ -559,6 +587,7 @@ instance EvalItem RookPawn where
     evalItem p c _ = evalRookPawn p c
     evalItemNDL _ = [("rookPawn", (-15, (-30, 0))) ]
 
+evalRookPawn :: MyPos -> Color -> [Int]
 evalRookPawn p _ = [rps]
     where !wrp = popCount1 $ pawns p .&. white p .&. rookFiles
           !brp = popCount1 $ pawns p .&. black p .&. rookFiles

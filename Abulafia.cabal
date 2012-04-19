@@ -7,7 +7,7 @@ Name:                Abulafia
 -- The package version. See the Haskell package versioning policy
 -- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
 -- standards guiding when and how versions should be incremented.
-Version:             0.60
+Version:             0.61
 
 -- A short (one-line) description of the package.
 Synopsis:            Chess engine
@@ -53,7 +53,9 @@ Executable PlotEvolve
 Executable FixPlayFen
   Main-is:	Main/MainFixPlayFen.hs
   Build-depends: base >= 4, array, mtl, parsec, transformers
-  GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4
+  GHC-Options: -O2 -Wall
+               -funbox-strict-fields -threaded -rtsopts
+               -fspec-constr-count=4
                -funfolding-use-threshold=32
                -- -fext-core
   if flag(profile)
@@ -67,18 +69,22 @@ Executable FixPlayFen
 Executable BenchTransTab
   Main-is:	Tests/TestTransTab.hs
   Build-depends:	base >= 4, array, mtl, parsec, criterion, QuickCheck
-  GHC-Options: -O2 -funbox-strict-fields -fspec-constr-count=4 -funfolding-use-threshold=32
+  GHC-Options: -O2 -Wall
+               -funbox-strict-fields
+               -fspec-constr-count=4 -funfolding-use-threshold=32
 
 Executable Evolve
   Main-is:	Main/MainEvolve.hs
   Build-depends: base >= 4, process, filepath, bytestring, old-locale
-  GHC-Options:	-O2 -threaded -rtsopts
+  GHC-Options:	-O2 -Wall -threaded -rtsopts
 
 Executable Abulafia
   Main-is:	Main/MainAbulafia.hs
   Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
                  random, stream-fusion, directory, transformers
-  GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=24
+  GHC-Options: -O2 -Wall
+               -funbox-strict-fields -threaded -rtsopts
+               -fspec-constr-count=24
                -funfolding-use-threshold=32
   if flag(profile)
     C-sources: Cbits/rts_hooksp.c
