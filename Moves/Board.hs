@@ -39,11 +39,13 @@ fenToAssocs :: String -> [(Square, (Color, Piece))]
 fenToAssocs str = go 56 str []
     where go _ [] acc = acc
           go sq (c:cs) acc
+              | sq < 0 = acc
               | c `elem` "PRNBQK" = go (sq+1) cs $ (sq, fcw):acc
               | c `elem` "prnbqk" = go (sq+1) cs $ (sq, fcb):acc
-              | c == '/'  = go (nextline sq) cs acc
+              -- | c == '/'  = go (nextline sq) cs acc
               | isDigit c = go (skip sq c) cs acc
-              | otherwise = go sq cs acc	-- silently ignore other chars
+              -- | otherwise = go sq cs acc	-- silently ignore other chars
+              | otherwise = go (nextline sq) cs acc	-- treat like /
               where fcw = (White, toPiece c)
                     fcb = (Black, toPiece $ toUpper c)
           skip f c = f + fromIntegral (ord c - ord '0')

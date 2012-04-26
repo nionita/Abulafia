@@ -1,18 +1,25 @@
 {-# LANGUAGE PatternGuards #-}
-module Uci.UciMain where
+module Main.Selfplay where
 import Control.Monad
 import Control.Monad.Reader
+import Control.Monad.State.Strict
 import Data.Array.Unboxed
+import Data.Char (isSpace)
 import Data.Maybe
+import Data.List
+import Data.Ord (comparing)
 import Control.Concurrent
+import Control.Concurrent.Chan
+import Control.Concurrent.MVar
 import qualified Control.Exception as CE
+import System.Directory
 import System.Environment (getArgs)
 import System.IO
 import System.Time
 
 import Struct.Struct
 import Struct.Status
-import Struct.Context
+import Struct.Context2
 import Config.ConfigClass
 import Hash.TransTab
 import Uci.UCI
@@ -25,48 +32,61 @@ import Search.SearchMonad (execSearch)
 import Eval.Eval (paramNames)
 import Eval.FileParams (makeEvalState, learnConfigFilePrefix)
 
-forceLogging :: Bool
 forceLogging = True || learnEval
 
-initContext :: GConfig -> IO Context
-initContext cf@(GConfig cfg) = do
-    clktm <- getClockTime
+initContext :: GConfig -> String -> String -> [String] -> IO Context
+initContext cf@(GConfig cfg) pf1 pf2 opts = do
+    s0 <- currentSecs
     let llev = getIParamDefault cfg "logLevel" 0
         logg = forceLogging || llev > 0 
     mlchan <- if logg then Just `fmap` newChan else return Nothing
     wchan  <- newChan
-    ichan <- newChan
-    ha <- newCache cfg
-    hi <- newHist
-    args <- getArgs
-    let argFile = if null args then Nothing else Just (head args)
-    (parc, evs) <- makeEvalState learnEval cfg progVersion argFile
-    let chg = Chg {
+    ha1 <- newCache cfg
+    hi1 <- newHist
+    (parc1, evs1) <- makeEvalState learnEval cfg progVersion (Just pf1)
+    ha2 <- newCache cfg
+    hi2 <- newHist
+    (parc2, evs2) <- makeEvalState learnEval cfg progVersion (Just pf2)
+    let gsts = decodeGameStats opts
+        change = Chg {
             config = cf,
-            working = False,
             compThread = Nothing,
-            crtStatus = posToState initPos ha hi evs,
+            crtPos = initPos,
+            crtId  = evs1
+            crtStatus = posToState initPos ha1 hi1 evs1,
+            crtStats  = gsts,
+            nxtId  = evs2,
+            nxtStatus = posToState initPos ha2 hi2 evs2,	-- here: pos is dummy
+            nxtStats  = gsts,
             forGui = Nothing,
             srchStrtMs = 0,
             myColor = White
          }
-    ctxVar <- newMVar chg
+    ctxVar <- newMVar change
     let context = Ctx {
+            szero  = s0,
             logger = mlchan,
             writer = wchan,
-            inform = ichan,
-            strttm = clktm,
-            change = ctxVar,
             loglev = llev,
-            evpid  = parc
+            evpid  = parc,
+            change = ctxVar
          }
     return context
 
-uciMain :: GConfig -> IO ()
-uciMain c = do
-    ctx <- initContext c
-    -- cinit	-- this was the c initialiazation routine
-    runReaderT startTheMachine ctx
+main :: GConfig -> IO ()
+main = do
+    args <- getArgs
+    if length args < 2 then error "Need at least 2 config files as arguments" else do
+    let [pf1:pf2:opts] = args
+    e1 <- fileExists pf1
+    e2 <- fileExists pf2
+    if e1 && e2
+       then do
+           ctx <- initContext (GConfig defaultConfig) pf1 pf2 opts
+           runReaderT startTheMachine ctx
+       else do
+           if not e1 then putStrLn $ "File " ++ pf1 ++ " does not exists"
+           if not e2 then putStrLn $ "File " ++ pf2 ++ " does not exists"
 
 startTheMachine :: CtxIO ()
 startTheMachine = do
@@ -77,10 +97,8 @@ startTheMachine = do
         let logFileName = progLogName ++ show crtt ++ ".log"
         startLogger logFileName
     startWriter
-    startInformer
     beforeReadLoop
-    ctxCatch theReader
-        $ \e -> ctxLog "Error" $ "Reader error: " ++ show e
+    runTheGame
     -- whatever to do when ending:
     beforeProgExit
 
@@ -88,8 +106,7 @@ startLogger :: String -> CtxIO ()
 startLogger file = do
     ctx <- ask
     lh <- liftIO $ openFile file AppendMode
-    -- liftIO $ forkIO $ theLogger (fromJust $ logger ctx) lh
-    _ <- liftIO $ forkIO $ CE.catch (theLogger (fromJust $ logger ctx) lh) exc
+    liftIO $ forkIO $ CE.catch (theLogger (fromJust $ logger ctx) lh) exc
     ctxLog "Info" "Logger started"
     return ()
     where exc :: CE.SomeException -> IO ()
@@ -98,13 +115,13 @@ startLogger file = do
 startWriter :: CtxIO ()
 startWriter = do
     ctx <- ask
-    _ <- liftIO $ forkIO $ theWriter (writer ctx) (logger ctx)
+    liftIO $ forkIO $ theWriter (writer ctx) (logger ctx)
     return ()
 
 startInformer :: CtxIO ()
 startInformer = do
     ctx <- ask
-    _ <- newThread (theInformer (inform ctx))
+    newThread (theInformer (inform ctx))
     return ()
 
 theLogger :: Chan String -> Handle -> IO ()
@@ -130,9 +147,8 @@ theInformer ichan = do
     -- ctxLog "Debug" "Informer: go take next info if any..."
     theInformer ichan
 
-toGui :: InfoToGui -> CtxIO ()
 toGui s = case s of
-            InfoS s'   -> answer $ infos s'
+            InfoS s    -> answer $ infos s
             InfoD _    -> answer $ formInfoDepth s
             InfoCM _ _ -> answer $ formInfoCM s
             _          -> answer $ formInfo s
@@ -149,46 +165,21 @@ theReader = do
         Right uci -> interpret uci
     unless stop theReader
 
-interpret :: UCIMess -> CtxIO Bool
-interpret uci =
-    case uci of
-        Quit       -> do doQuit
-                         let ms = 500   -- sleep 0.5 second
-                         liftIO $ threadDelay $ ms * 1000
-                         return True
-        Uci        -> goOn doUci
-        IsReady    -> goOn doIsReady
-        UciNewGame -> goOn doUciNewGame
-        Position p mvs -> goOn (doPosition p mvs)
-        Go cmds    -> goOn (doGo cmds)
-        Stop       -> goOn $ doStop True
-        Ponderhit  -> goOn doPonderhit
-        _          -> goOn ignore
+runTheGame :: CtxIO ()
+runTheGame = do
+    chg <- readChanging
+    -- here: must check if it's end of game: mate, 50 moves rule, 3 repetitions
+    -- or other conditions (accepted draw, resign), in which case terminate
+    
 
-doQuit :: CtxIO ()
-doQuit = ctxLog "Info" "Normal exit"
-
-goOn :: CtxIO () -> CtxIO Bool
-goOn action = action >> return False
-
-doUci :: CtxIO ()
-doUci = do
-    evid <- asks evpid
-    answer (idName ++ " " ++ evid) >> answer idAuthor >> answer uciOk
-
-doIsReady :: CtxIO ()
-doIsReady = do
-    when (movesInit == 0) $ return ()
-    answer readyOk
-
-ignore :: CtxIO ()
-ignore = notImplemented "ignored"
-
-notImplemented :: String -> CtxIO ()
-notImplemented s = ctxLog "Impl" $ "not implemented: " ++ s
-
-doUciNewGame :: CtxIO ()
-doUciNewGame = notImplemented "doUciNewGame"
+-- Todo: decode correct game parameters (time or nodes)
+-- Currently: node limit, 400k+20k, which corresponds to
+-- 10+0.5 seconds per game and engine
+decodeGameStats :: [String] -> GameStats
+decodeGameStats _ = GameStats {
+                        gsUsedTime  = 0, gsRemTime  = 0,   gsMoveTime  = 0,
+                        gsUsedNodes = 0, gsRemNodes = 400, gsMoveNodes = 20
+                    }
 
 doPosition :: Pos -> [Move] -> CtxIO ()
 doPosition fen mvs = do
@@ -208,11 +199,9 @@ doPosition fen mvs = do
           fenColor = movingColor fen
           myCol = if even (length mvs) then fenColor else other fenColor
 
-stateFromFen :: Pos -> Cache -> History -> EvalState -> MyState
 stateFromFen StartPos  c h es = posToState initPos c h es
 stateFromFen (Pos fen) c h es = posToState (posFromFen fen) c h es
 
-movingColor :: Pos -> Color
 movingColor fen
     | Pos str <- fen
         = case head . head . tail $ words str of
@@ -220,7 +209,6 @@ movingColor fen
               _   -> Black
     | otherwise = White     -- startposition
 
-doGo :: [GoCmds] -> CtxIO ()
 doGo cmds = do
     ctxLog "Info" $ "Go: " ++ show cmds
     chg <- readChanging
@@ -237,8 +225,7 @@ doGo cmds = do
                                  _ -> 0
                 startWorking tim tpm mtg dpt
 
-getTimeParams :: [GoCmds] -> Int -> Color -> (Int, Int, Int)
-getTimeParams cs _ c	-- unused: lastsc
+getTimeParams cs lastsc c
     = if tpm == 0 && tim == 0
          then (0, 0, 0)
          else (tim, tpm, mtg)
@@ -246,22 +233,18 @@ getTimeParams cs _ c	-- unused: lastsc
           tim = fromMaybe 0 $ findTime c cs
           mtg = fromMaybe 0 $ findMovesToGo cs
 
-timeReserved :: Int
 timeReserved   = 20	-- milliseconds reserved for move communication
-
-remTimeFracIni, remTimeFracFin, remTimeFracDev :: Double
 remTimeFracIni = 0.01	-- fraction of remaining time which we can consume at once - initial value
 remTimeFracFin = 0.5	-- same at final (when remaining time is near zero)
 remTimeFracDev = remTimeFracFin - remTimeFracIni
 
-compTime :: Int -> Int -> Int -> Int -> (Int, Int)
 compTime tim tpm fixmtg lastsc
     = if tpm == 0 && tim == 0 then (0, 0) else (ctm, tmx)
     where ctn = tpm + tim `div` mtg
           ctm = if tim > 0 && tim < 8000 || tim == 0 && tpm < 1500 then 200 else ctn
           mtg = if fixmtg > 0 then fixmtg else estimateMovesToGo lastsc
           frtim = fromIntegral $ max 0 $ tim - ctm	-- rest time after this move
-          fctm  = fromIntegral ctm :: Double
+          fctm  = fromIntegral ctm
           rtimprc = fctm / max frtim fctm
           rtimfrc = remTimeFracIni + remTimeFracDev * rtimprc
           tmxt = round $ fctm + rtimfrc * frtim
@@ -270,12 +253,10 @@ compTime tim tpm fixmtg lastsc
 estMvsToGo :: Array Int Int
 estMvsToGo = listArray (0, 8) [30, 28, 24, 18, 12, 10, 8, 6, 3]
 
-estimateMovesToGo :: Int -> Int
 estimateMovesToGo sc = estMvsToGo ! mvidx
     where mvidx = min 8 $ abs sc `div` 100
 
 -- Some parameters (until we have a good solution)
-clearHash :: Bool
 clearHash = False
 
 newThread :: CtxIO () -> CtxIO ThreadId
@@ -291,6 +272,7 @@ startWorking tim tpm mtg dpt = do
         ++ " - maximal " ++ show dpt ++ " plys"
     modifyChanging $ \c -> c { working = True, srchStrtMs = currms,
                                crtStatus = posNewSearch (crtStatus c) }
+    ctx <- ask
     tid <- newThread (startSearchThread tim tpm mtg dpt)
     modifyChanging (\c -> c { compThread = Just tid })
     return ()
@@ -326,7 +308,6 @@ internalStop ms = do
     ctxLog "Debug" "Internal stop clock ended"
     doStop False
 
-betterSc :: Int
 betterSc = 25
 
 -- Search with the given depth
@@ -370,8 +351,8 @@ searchTheTree tief mtief timx tim tpm mtg lsc lpv rmvs = do
             when depthmax $ ctxLog "Info" "in searchTheTree: max depth reached"
             giveBestMove path
         else do
-            chg' <- readChanging
-            if working chg'
+            chg <- readChanging
+            if working chg
                 then searchTheTree (tief + 1) mtief (currms + mx) tim tpm mtg (Just sc) path rmvsf
                 else do
                     ctxLog "Info" "in searchTheTree: not working"
@@ -394,9 +375,12 @@ giveBestMove mvs = do
 beforeReadLoop :: CtxIO ()
 beforeReadLoop = do
     chg <- readChanging
-    let evst = evalst $ crtStatus chg
-    ctxLog "Info" "Initial eval parameters:"
-    forM_ (zip paramNames (esDParams evst)) $ \(n, v) -> ctxLog "Info" $! n ++ "\t" ++ show v
+    let evst1 = evalst $ crtStatus chg
+        evst2 = evalst $ nxtStatus chg
+    ctxLog "Info" "Eval parameters player 1 (" ++ crtEvpid chg ++ "):"
+    forM_ (zip paramNames (esDParams evst1)) $ \(n, v) -> ctxLog "Info" $! n ++ "\t" ++ show v
+    ctxLog "Info" "Eval parameters player 2 (" ++ nxtEvpid chg ++ "):"
+    forM_ (zip paramNames (esDParams evst2)) $ \(n, v) -> ctxLog "Info" $! n ++ "\t" ++ show v
 
 beforeProgExit :: CtxIO ()
 beforeProgExit = when learnEval $ do
@@ -408,7 +392,6 @@ beforeProgExit = when learnEval $ do
         writeFile newEvalFile $
            unlines $ map (\(n, v) -> n ++ " = " ++ show v) $ zip paramNames $ esDParams evst
 
-doStop :: Bool -> CtxIO ()
 doStop extern = do
     chg <- readChanging
     modifyChanging (\c -> c { working = False, compThread = Nothing })
@@ -422,7 +405,6 @@ doStop extern = do
                 Nothing  -> return ()
         _ -> return ()
 
-doPonderhit :: CtxIO ()
 doPonderhit = notImplemented "doPonderhit"
 
 -- Helper: Antwortet dem GUI mit dem gegebenen String
@@ -432,23 +414,21 @@ answer s = do
     liftIO $ writeChan (writer ctx) s
 
 -- Version and suffix:
-progVersion, progVerSuff, progLogName :: String
-progVersion = "0.61"
-progVerSuff = "iddm"
+progVersion = "0.60"
+progVerSuff = ""
 
 progLogName = "abulafia" ++ "-" ++ progVersion
                  ++ if null progVerSuff then ""
                                         else "-" ++ progVerSuff
 
 -- These are the possible answers from engine to GUI:
-idName, idAuthor, uciOk, readyOk :: String
 idName = "id name Abulafia " ++ progVersion
              ++ if null progVerSuff then "" else " " ++ progVerSuff
 idAuthor = "id author Nicu Ionita"
 uciOk = "uciok"
+
 readyOk = "readyok"
 
-bestMove :: Move -> Maybe Move -> String
 bestMove m mp = s
     where s = "bestmove " ++ toString m ++ sp
           sp = maybe "" (\v -> " ponder " ++ toString v) mp
@@ -463,11 +443,11 @@ formInfo itg = "info"
     -- ++ " seldepth " ++ show idp
     ++ " time " ++ show (infoTime itg)
     ++ " nodes " ++ show (infoNodes itg)
-    ++ nps'
+    ++ nps
     ++ " pv" ++ concatMap (\m -> ' ' : toString m) (infoPv itg)
-    where nps' = case infoTime itg of
-                     0 -> ""
-                     x -> " nps " ++ show (infoNodes itg `div` x * 1000)
+    where nps = case infoTime itg of
+                0 -> ""
+                x -> " nps " ++ show (infoNodes itg `div` x * 1000)
           isc = infoScore itg
 
 formInfoB :: InfoToGui -> String
@@ -477,7 +457,6 @@ formInfoB itg = "info"
     ++ " pv" ++ concatMap (\m -> ' ' : toString m) (infoPv itg)
     where isc = infoScore itg
 
-formScore :: Int -> String
 formScore i
     | i >= mateScore - 255    = " score mate " ++ show ((mateScore - i + 1) `div` 2)
     | i <= (-mateScore) + 255 = " score mate " ++ show ((-mateScore - i) `div` 2)
@@ -489,40 +468,32 @@ formInfo2 itg = "info"
     ++ " depth " ++ show (infoDepth itg)
     ++ " time " ++ show (infoTime itg)
     ++ " nodes " ++ show (infoNodes itg)
-    ++ nps'
+    ++ nps
     -- ++ " pv" ++ concatMap (\m -> ' ' : toString m) (infoPv itg)
-    where nps' = case infoTime itg of
-                     0 -> ""
-                     x -> " nps " ++ show (infoNodes itg * 1000 `div` x)
+    where nps = case infoTime itg of
+                0 -> ""
+                x -> " nps " ++ show (infoNodes itg * 1000 `div` x)
 
-formInfoNps :: InfoToGui -> Maybe String
 formInfoNps itg
     = case infoTime itg of
           0 -> Nothing
           x -> Just $ "info nps " ++ show (infoNodes itg `div` x * 1000)
 
-formInfoDepth :: InfoToGui -> String
 formInfoDepth itg
     = "info depth " ++ show (infoDepth itg)
       --  ++ " seldepth " ++ show (infoDepth itg)
 
-formInfoCM :: InfoToGui -> String
 formInfoCM itg
     = "info currmove " ++ toString (infoMove itg)
         ++ " currmovenumber " ++ show (infoCurMove itg)
 
-depth :: Int -> Int -> String
-depth d _ = "info depth " ++ show d
+depth d sd = "info depth " ++ show d
 
-inodes :: Int -> String
 inodes n = "info nodes " ++ show n
 
-pv :: Int -> [Move] -> String
 pv t mvs = "info time " ++ show t ++ " pv"
     ++ concatMap (\m -> ' ' : toString m) mvs
 
-nps :: Int -> String
 nps n = "info nps " ++ show n
 
-infos :: String -> String
 infos s = "info string " ++ s

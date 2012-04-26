@@ -46,6 +46,11 @@ Flag Profile
   Description:	Enables profile support
   Default:	False
 
+Executable VizGraph
+  Main-is:       Main/VizGraph.hs
+  Build-depends: base >= 4
+  GHC-Options:   -O2
+
 Executable PlotEvolve
   Main-is:	Main/EvolveToPlot.hs
   Build-depends:	base >= 4, filepath, regex-compat

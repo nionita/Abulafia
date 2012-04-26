@@ -138,6 +138,7 @@ seeMoveValue pos col sqfa sqto gain0 = v
           attacs0 = newAttacs pos sqto moved0
           occup0  = occup pos `xor` moved0
 
+-- This function can produce illegal captures with the king!
 genMoveCaptWL :: MyPos -> Color -> ([(Square, Square)], [(Square, Square)])
 genMoveCaptWL pos col = (swl, sll)
     where (wl, ll) = foldr (perCaptFieldWL pos col mypc yoAtt) ([],[]) $ bbToSquares capts

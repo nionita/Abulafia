@@ -26,6 +26,10 @@ import Moves.Base
 -- debug :: Bool
 -- debug = False
 
+-- To generate info for tree vizualization
+viztree :: Bool
+viztree = False
+
 -- Parameter for aspiration
 useAspirWin :: Bool
 useAspirWin = True
@@ -106,7 +110,7 @@ qsMaxChess = 2		-- max number of chess for a quiet search path
 nulActivate :: Bool
 nulActivate = True		-- activate null move reduction
 nulRedux, nulMoves :: Int
-nulRedux    = 3 -- depth reduction for null move
+nulRedux    = 2 -- depth reduction for null move
 nulMoves    = 2	-- how many null moves in sequence are allowed (one or two)
 nulMargin, nulSubmrg :: Int
 nulMargin   = 1		-- margin to search the null move (over beta)
@@ -121,7 +125,7 @@ useIID      = False
 minIIDPV, minIIDCut, maxIIDDepth :: Int
 minIIDPV    = 5
 minIIDCut   = 7
-maxIIDDepth = 4
+maxIIDDepth = 3
 
 iidNewDepth :: Int -> Int
 iidNewDepth = subtract 1
@@ -337,6 +341,7 @@ pvRootSearch a b d _ _ _ | d <= 0 = do	-- this part is only for eval learning
     v <- pvQSearch a b 0		-- in normal play always d >= 1
     return (v, emptySeq, Alt [])
 pvRootSearch a b d lastpath rmvs aspir = do
+    viztreeNew d
     modify $ \s -> s { draft = d }
     -- Root is pv node, cannot fail low, except when aspiration fails!
     edges <- if null (unalt rmvs)
@@ -423,6 +428,7 @@ pvInnerRoot b d nst e = do
          -- lift $ logmes $ "Search root move " ++ show e ++ " a = " ++ show a ++ " b = " ++ show b
          -- do the move
          exd <- {-# SCC "newNode" #-} lift $ doEdge e False
+         viztreeDown e
          newNode
          modify $ \s -> s { absdp = absdp s + 1 }
          s <- case exd of
@@ -430,6 +436,7 @@ pvInnerRoot b d nst e = do
                   Final sco  -> return $! pathFromScore "Final" (-sco)
          -- undo the move
          lift $ undoEdge
+         viztreeUp e (pathScore s)
          modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
          -- s' <- checkPath nst d "cpl 1" $ addToPath e (pnextlev s)
          s' <- checkPath nst d "cpl 1" $ addToPath e s
@@ -676,7 +683,7 @@ pvSearch nst !a !b !d lastpath lastnull = do
 
 nullEdgeFailsHigh :: Node m => NodeState -> Path -> Int -> Int -> Search m Bool
 nullEdgeFailsHigh nst b d lastnull =
-    if not nulActivate || lastnull < 1 || ownnt nst == PVNode
+    if not nulActivate || lastnull < 1 || ownnt nst == PVNode || d1 <= 0
        then return False
        else do
          tact <- lift tactical
@@ -684,15 +691,17 @@ nullEdgeFailsHigh nst b d lastnull =
             then return False
             else do
                lift nullEdge	-- do null move
+               viztreeDown0
                inschool <- gets $ school . ronly
                let !nmb = if nulSubAct && not inschool then b - snulSubmrg else b
-                   !d1  = d - 1 - nulRedux
                    !lastnull1 = lastnull - 1
                val <- pvSearch nst (-nmb) (-nmb + snulMargin) d1 (emptySeq) lastnull1
                lift undoEdge	-- undo null move
+               viztreeUp0 (pathScore (-val))
                return $! (-val) >= nmb
     where snulMargin = pathFromScore "nulMargin" nulMargin
           snulSubmrg = pathFromScore "nulSubmrg" nulSubmrg
+          !d1  = d - 1 - nulRedux
 
 -- This is the inner loop of the PV search, executed at every level (except root) once per possible move
 -- See the parameter
@@ -711,12 +720,14 @@ pvInnerLoop b d nst e = do
          old <- get
          pindent $ "-> " ++ show e
          exd <- {-# SCC "newNode" #-} lift $ doEdge e False	-- do the move
+         viztreeDown e
          newNode
          modify $ \s -> s { absdp = absdp s + 1 }
          s <- case exd of
                   Exten exd' -> pvInnerLoopExten b d (special e) exd' nst
                   Final sco  -> return $! pathFromScore "Final" (-sco)
          lift $ undoEdge	-- undo the move
+         viztreeUp e (pathScore s)
          modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
          -- s' <- checkPath nst d "cpl 8" $ addToPath e (pnextlev s)
          s' <- checkPath nst d "cpl 8" $ addToPath e s
@@ -987,12 +998,14 @@ pvQInnerLoop b c a e = do
          -- here: delta pruning: captured piece + 200 > a? then go on, else return
          -- qindent $ "-> " ++ show e
          r <- {-# SCC "newNodeQS" #-} lift $ doEdge e True
+         viztreeDown e
          newNodeQS
          modify $ \s -> s { absdp = absdp s + 1 }
          sc <- liftM nextlev $ case r of
                  Final sc -> return sc
                  _        -> pvQSearch (-b) (-a) c
          lift $ undoEdge
+         viztreeUp e sc
          modify $ \s -> s { absdp = absdp s - 1 }	-- don't care about usedext here
          -- qindent $ "<- " ++ show e ++ " (" ++ show s ++ ")"
          abrt' <- gets abort
@@ -1086,6 +1099,21 @@ indentPassive _ = return ()
 pindent, qindent :: Node m => String -> Search m ()
 pindent = indentPassive
 qindent = indentPassive
+
+viztreeDown :: Node m => Move -> Search m ()
+viztreeDown e = when viztree $ lift $ logmes $ "***DOWN " ++ show e
+
+viztreeDown0 :: Node m => Search m ()
+viztreeDown0 = when viztree $ lift $ logmes $ "***DOWN null"
+
+viztreeUp :: Node m => Move -> Int -> Search m ()
+viztreeUp e s = when viztree $ lift $ logmes $ "***UP " ++ show e ++ " " ++ show s
+
+viztreeUp0 :: Node m => Int -> Search m ()
+viztreeUp0 s = when viztree $ lift $ logmes $ "***UP null " ++ show s
+
+viztreeNew :: Node m => Int -> Search m ()
+viztreeNew d = when viztree $ lift $ logmes $ "***NEW " ++ show d
 
 bestFirst :: Eq e => [e] -> [e] -> ([e], [e]) -> [e]
 bestFirst path kl (es1, es2)
