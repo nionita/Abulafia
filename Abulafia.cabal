@@ -83,21 +83,21 @@ Executable Evolve
   Build-depends: base >= 4, process, filepath, bytestring, old-locale
   GHC-Options:	-O2 -Wall -threaded -rtsopts
 
-Executable Abulafia
-  Main-is:	Main/MainAbulafia.hs
-  Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
-                 random, stream-fusion, directory, transformers
-  GHC-Options: -O2 -Wall
-               -funbox-strict-fields -threaded -rtsopts
-               -fspec-constr-count=24
-               -funfolding-use-threshold=32
-  if flag(profile)
-    C-sources: Cbits/rts_hooksp.c
-    -- GHC-Options: -auto-all
-    -- GHC-Options: -auto-all -with-rtsopts="-p -hc -smemop.txt"
-  else
-    C-sources: Cbits/rts_hooks.c
-    -- GHC-Options: -with-rtsopts="-N2 -smemuse.txt -M2048m -H1024m"
+-- Executable Abulafia
+--   Main-is:	Main/MainAbulafia.hs
+--   Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
+--                  random, stream-fusion, directory, transformers
+--   GHC-Options: -O2 -Wall
+--                -funbox-strict-fields -threaded -rtsopts
+--                -fspec-constr-count=24
+--                -funfolding-use-threshold=32
+--   if flag(profile)
+--     C-sources: Cbits/rts_hooksp.c
+--     -- GHC-Options: -auto-all
+--     -- GHC-Options: -auto-all -with-rtsopts="-p -hc -smemop.txt"
+--   else
+--     C-sources: Cbits/rts_hooks.c
+--     -- GHC-Options: -with-rtsopts="-N2 -smemuse.txt -M2048m -H1024m"
 
 -- Executable LearnSTS
 --   Main-is:             Tests/LearnSTS.hs

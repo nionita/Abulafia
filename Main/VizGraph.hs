@@ -30,7 +30,7 @@ defaultOptions = Options {
         optOutFile = Nothing,
         optDotFile = Nothing,
         optDepth   = 10,
-        optSDepth  = 3,
+        optSDepth  = 2,
         optRoot    = 0,
         optPath    = Nothing
     }
@@ -80,11 +80,13 @@ plotWithOptions = do
     (opts, _) <- vizOptions args
     case optDotFile opts of
         Nothing -> ioError (userError error1)
-        _ -> case optFen opts of
-                 Just fen -> plotFromFen fen opts
-                 Nothing  -> case optInFile opts of
-                        Just inf -> plotFromFile inf opts
-                        Nothing  -> ioError (userError (usageInfo error2 options))
+        Just df -> do
+            case optFen opts of
+                Just fen -> plotFromFen fen opts
+                Nothing  -> case optInFile opts of
+                    Just inf -> plotFromFile inf opts
+                    Nothing  -> ioError (userError (usageInfo error2 options))
+            drawAndShow df opts
     where error1 = "You must provide a dot file name (-g)"
           error2 = "You must give either a fen or an input file"
 
@@ -140,7 +142,7 @@ lineok line = case line of
     ('L':'o':'g':':':' ':'*':'*':'*':_) -> Just (drop 8 line) 
     _                                   -> Nothing
 
-data Phase = Pre | In | Post	-- before, during or after the visible tree
+data Phase = Pre | In | Post deriving Eq	-- before, during or after the visible tree
 
 data MyState = MyState {
                    stOpened  :: Bool,
@@ -148,11 +150,13 @@ data MyState = MyState {
                    stOFile   :: Handle,
                    stCounter :: !Int,
                    stStack   :: [Int],
-                   stPly     :: !Int
+                   stPly     :: !Int,
+                   stVizRoot :: !Int,
+                   stVizPly  :: !Int
                }
 
 state0 = MyState { stOpened = False, stPhase = Pre, stOFile = undefined,
-                   stCounter = 0, stStack = [], stPly = 0 }
+                   stCounter = 1, stStack = [0], stPly = 0, stVizRoot = 0, stVizPly = 0 }
 
 type Dotter = StateT MyState IO
 
@@ -169,20 +173,31 @@ updateNew opts sdepth = do
     when (stOpened s) closeDot
     when (idepth == optDepth opts) $ do
         h <- lift $ openFile (fromJust $ optDotFile opts) WriteMode
-        -- write beginning of dot file and describe node 0
-        lift $ hPutStrLn h "digraph pos {"
-        lift $ hPutStrLn h "\tratio=auto"
-        lift $ hPutStrLn h "\tsize=\"7.5,10\""
-        lift $ hPutStrLn h "\tnode [shape=circle]"
-        lift $ hPutStrLn h "\t0 [label=\"root\"]"	--,color=green]
-        put MyState { stOpened = True, stOFile = h, stCounter = 1, stStack = [0], stPly = 0 }
+        if optPath opts == Nothing && optRoot opts == 0
+           then do
+               -- write beginning of dot file and describe node 0
+               lift $ do
+                   dotHeader h
+                   descNodeRoot h
+               put state0 { stOpened = True, stPhase = In,  stOFile = h }
+           else
+               put state0 { stOpened = True, stPhase = Pre, stOFile = h }
 
 updateDown :: Options -> String -> Dotter ()
-updateDown _ _ = do
+updateDown opts _ = do
     s <- get
     when (stOpened s) $ do
-        let n = stCounter s
-        put s { stCounter = n + 1, stStack = n : stStack s, stPly = stPly s + 1 }
+        let n    = stCounter s
+            nPly = stPly s + 1
+            vPly = if stPhase s == In then stVizPly s + 1 else stVizPly s
+            stk  = n : stStack s
+        if stPhase s == Pre && optPath opts == Nothing && n == optRoot opts
+           then do
+               lift $ dotHeader (stOFile s)
+               --  hPutStrLn h "\t" ++ show n ++ " [label=\"root\"]"	--,color=green]
+               put s { stCounter = n + 1, stStack = stk, stPly = nPly,
+                       stPhase = In, stVizRoot = n }
+           else put s { stCounter = n + 1, stStack = stk, stPly = nPly, stVizPly = vPly }
 
 updateUp :: Options -> String -> Dotter ()
 updateUp opts str = do
@@ -192,12 +207,19 @@ updateUp opts str = do
             (node : stk) = stStack s
             parent = show . head $ stk
             snode = show node
-        -- write the new node and the relation to the parent
-        lift $ hPutStrLn (stOFile s) $ "\t" ++ snode ++ " [label=\""
-                                  ++ move ++ " (" ++ snode ++ ")\\n" ++ show (stPly s) ++ "\"]"
-        lift $ hPutStrLn (stOFile s) $ "\t" ++ parent ++ " -> " ++ snode
-                                  ++ " [label=" ++ score ++ "]"
-        put s { stStack = stk, stPly = stPly s - 1 }
+            nPly = stPly s - 1
+            vPly = if stPhase s == In then stVizPly s - 1 else stVizPly s
+        when (stPhase s == In && stVizPly s <= optSDepth opts) $ do
+            -- write the new node and the relation to the parent
+            if stVizPly s == optSDepth opts && nodeHadChildren node
+               then lift $ descNodeFrontier (stOFile s) snode move (stPly s)
+               else lift $ descNodeNormal   (stOFile s) snode move (stPly s)
+            lift $ descEdge (stOFile s) parent snode score
+        if vPly < 0
+           then put s { stPhase = Post, stStack = stk, stPly = nPly, stVizPly = vPly }
+           else put s {                 stStack = stk, stPly = nPly, stVizPly = vPly }
+
+nodeHadChildren _ = False	-- dummy - we need node information!
 
 closeDot :: Dotter ()
 closeDot = do
@@ -205,3 +227,30 @@ closeDot = do
     lift $ hPutStr (stOFile s) "}"	-- closing bracket
     lift $ hClose $ stOFile s 	-- should we check consistence on this close?
     put s { stOpened = False }
+
+dotHeader h = do
+    hPutStrLn h "digraph pos {"
+    hPutStrLn h "\tratio=auto"
+    -- hPutStrLn h "\tsize=\"7.5,10\""
+    hPutStrLn h "\tnode [shape=circle]"
+
+descNodeRoot h = hPutStrLn h "\t0 [label=\"root\"]"	--,color=green]
+
+descNodeFrontier h node move ply =
+    hPutStrLn h $ "\t" ++ node ++ " [style=filled,color=gray,label=\""
+                       ++ move ++ " (" ++ node ++ ")\\n" ++ show ply ++ "\"]"
+
+descNodeNormal h node move ply =
+    hPutStrLn h $ "\t" ++ node ++ " [label=\""
+                       ++ move ++ " (" ++ node ++ ")\\n" ++ show ply ++ "\"]"
+
+descEdge h parent node score =
+    hPutStrLn h $ "\t" ++ parent ++ " -> " ++ node
+                       ++ " [label=" ++ score ++ "]"
+
+drawAndShow dotf opts = do
+    system $ "dot -T" ++ format ++ " -o " ++ outFile ++ " " ++ dotf
+    runCommand outFile
+    where format = "svg"
+          outFile = dotf' ++ "." ++ format
+          dotf' = reverse . drop 4 . reverse $ dotf
