@@ -28,7 +28,7 @@ import Moves.Base
 
 -- To generate info for tree vizualization
 viztree :: Bool
-viztree = False
+viztree = True
 
 -- Parameter for aspiration
 useAspirWin :: Bool
