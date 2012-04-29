@@ -1,10 +1,10 @@
 module Main where
 
--- import Control.Applicative
 import Control.Monad (when, forM_, mapM)
 import Control.Monad.State
 import Data.Char (isSpace)
 import Data.Maybe (fromJust, fromMaybe)
+import System.Directory
 import System.FilePath
 import System.Environment (getArgs)
 import System.IO
@@ -13,56 +13,41 @@ import System.Console.GetOpt
 
 data Options = Options {
          optVerbose :: Bool,		-- what else?
+         optIdent   :: Maybe String,	-- walk session identifier
          optFen     :: Maybe String,	-- analyse with FixPlayFen
-         optInFile  :: Maybe String,	-- input from file
-         optOutFile :: Maybe String,	-- output to file (when fen is given)
-         optDotFile :: Maybe String,	-- dot file name (must be always given)
          optDepth   :: Int,		-- analyse depth (when fen is given)
          optSDepth  :: Int,		-- max show depth
-         optRoot    :: Int,		-- visible tree root node
-         optPath    :: Maybe String	-- path to the visible tree root node
+         optRoot    :: Int		-- visible tree root node
      }
 
 defaultOptions = Options {
         optVerbose = False,
+        optIdent   = Nothing,
         optFen     = Nothing,
-        optInFile  = Nothing,
-        optOutFile = Nothing,
-        optDotFile = Nothing,
         optDepth   = 10,
         optSDepth  = 2,
-        optRoot    = 0,
-        optPath    = Nothing
+        optRoot    = 0
     }
 
 setVerbose opt   = opt { optVerbose = True }
+setIdent   opt v = opt { optIdent   = Just v }
 setFen     opt v = opt { optFen     = Just v }
-setInFile  opt v = opt { optInFile  = Just v }
-setOutFile opt v = opt { optOutFile = Just v }
-setDotFile opt v = opt { optDotFile = Just v }
 setDepth   opt v = opt { optDepth   = v }
 setSDepth  opt v = opt { optSDepth  = v }
 setRoot    opt v = opt { optRoot    = v }
-setPath    opt v = opt { optPath    = Just v }
 
 options :: [OptDescr (Options -> Options)]
 options = [
-        Option ['g'] ["generate"]  (ReqArg (flip setDotFile) "FILE")
-            "name of the dot file to generate",
-        Option ['a'] ["analyse"] (ReqArg (flip setFen) "FEN")
+        Option ['i'] ["ident"]   (ReqArg (flip setIdent) "STRING")
+            "identifier for the tree walk session",
+        Option ['f'] ["fen"] (ReqArg (flip setFen) "FEN")
             "fen to be analysed to produce the tree",
-        Option ['o'] ["output"]  (ReqArg (flip setOutFile) "FILE")
-            "output file to save the tree description for later draws",
-        Option ['i'] ["input"]   (ReqArg (flip setInFile) "FILE")
-            "input file (tree description, produced by a previous analyse)",
         Option ['d'] ["depth"]   (ReqArg (flip setDepth . read) "INT")
             "depth for analysis",
         Option ['s'] ["show"]    (ReqArg (flip setSDepth . read) "INT")
             "visible tree depth",
         Option ['r'] ["root"]    (ReqArg (flip setRoot . read) "INT")
             "visible tree root",
-        Option ['p'] ["path"]    (ReqArg (flip setPath) "MOVE,MOVE,...")
-            "path from real root to visible root node",
         Option ['v'] ["verbose"] (NoArg setVerbose)
             "enable verbose"
     ]
@@ -71,36 +56,51 @@ vizOptions :: [String] -> IO (Options, [String])
 vizOptions argv = case getOpt Permute options argv of
     (o, n, [])   -> return (foldr ($) defaultOptions o, n)
     (_, _, errs) -> ioError (userError (concat errs ++ usageInfo header options))
-    where header = "Usage: VizGraph -g DOTFILE {-a FEN [-o FILE]|-i FILE} [-d INT] [-s INT] [{-r INT|-p PATH}] [-v]"
+    where header = "Usage: VizGraph -i IDENT [-f FEN [-d INT]] [-s INT] [-r INT] [-v]"
 
 main = plotWithOptions
 
 plotWithOptions = do
     args <- getArgs
     (opts, _) <- vizOptions args
-    case optDotFile opts of
-        Nothing -> ioError (userError error1)
-        Just df -> do
+    case optIdent opts of
+        Nothing -> ioError (userError (usageInfo error1 options))
+        Just se -> do
             case optFen opts of
-                Just fen -> plotFromFen fen opts
-                Nothing  -> case optInFile opts of
-                    Just inf -> plotFromFile inf opts
-                    Nothing  -> ioError (userError (usageInfo error2 options))
-            drawAndShow df opts
-    where error1 = "You must provide a dot file name (-g)"
-          error2 = "You must give either a fen or an input file"
+                Just fen -> plotFromFen  opts se fen
+                Nothing  -> plotFromFile opts se
+            drawAndShow opts
+    where error1 = "You must provide an identifier for the walk session"
 
-plotFromFen  fen opts = procPlot fen opts
+plotFromFen  opts sess fen = do
+    dex <- doesDirectoryExist sess
+    if dex
+       then ioError (userError $ "Directory for new session " ++ sess ++ " already exist! "
+                                   ++ "You cannot provide a fen for an older session")
+       else do
+           createDirectory sess
+           setCurrentDirectory sess
+           procPlot opts fen
 
-plotFromFile inf opts = filePlot inf opts
+plotFromFile opts sess = do
+    dex <- doesDirectoryExist sess
+    if not dex
+       then ioError (userError $ "Directory for session " ++ sess ++ " does no exist! "
+                                    ++ "For new session you must provide a fen")
+       else do
+           setCurrentDirectory sess
+           filePlot opts
 
 -- Here is how to find the analysing program
 base = "J:/AbaAba"
 build = "dist" </> "build"
 
+analyseFile = "analyse.txt"
+fenFile     = "fen.txt"
+
 -- Processing from pipe
-procPlot :: String -> Options -> IO ()
-procPlot fen opts = do
+procPlot :: Options -> String -> IO ()
+procPlot opts fen = do
     let fixFen  = base </> build </> "FixPlayFen" </> "FixPlayFen.exe"
         currDir = base </> build </> "Abulafia"
         pp = (proc fixFen [show (optDepth opts), fen]) { std_out = CreatePipe }
@@ -109,17 +109,14 @@ procPlot fen opts = do
         Nothing -> ioError $ userError $ "Cannot start process:\n" ++ fixFen
                                        ++ "\nin directory " ++ show currDir
         Just oh -> do
-            msh <- case optOutFile opts of
-                       Nothing -> return Nothing
-                       Just f  -> do
-                           sh <- openFile f WriteMode
-                           return $ Just sh
-            procInput oh msh opts
+            writeFile fenFile fen
+            sh <- openFile analyseFile WriteMode
+            procInput oh (Just sh) opts
 
 -- Processing from file
-filePlot :: String -> Options -> IO ()
-filePlot file opts = do
-    oh <- openFile file ReadMode
+filePlot :: Options -> IO ()
+filePlot opts = do
+    oh <- openFile analyseFile ReadMode
     procInput oh Nothing opts
 
 procInput ih msh opts = do
@@ -133,7 +130,7 @@ procInput ih msh opts = do
                       case lineok line of
                           Just l  -> do
                               maybe (return ()) (\h -> lift $ hPutStrLn h line) msh
-                              dispath opts l
+                              dispatch opts l
                           Nothing -> return ()
                       go
 
@@ -160,8 +157,8 @@ state0 = MyState { stOpened = False, stPhase = Pre, stOFile = undefined,
 
 type Dotter = StateT MyState IO
 
-dispath :: Options -> String -> Dotter ()
-dispath opts line = case break isSpace line of
+dispatch :: Options -> String -> Dotter ()
+dispatch opts line = case break isSpace line of
     ("NEW",  rest) -> updateNew  opts $ drop 1 rest
     ("DOWN", rest) -> updateDown opts $ drop 1 rest
     ("UP",   rest) -> updateUp   opts $ drop 1 rest
@@ -172,8 +169,8 @@ updateNew opts sdepth = do
     s <- get
     when (stOpened s) closeDot
     when (idepth == optDepth opts) $ do
-        h <- lift $ openFile (fromJust $ optDotFile opts) WriteMode
-        if optPath opts == Nothing && optRoot opts == 0
+        h <- lift $ openFile (dotFile opts) WriteMode
+        if optRoot opts == 0
            then do
                -- write beginning of dot file and describe node 0
                lift $ do
@@ -191,7 +188,7 @@ updateDown opts _ = do
             nPly = stPly s + 1
             vPly = if stPhase s == In then stVizPly s + 1 else stVizPly s
             stk  = n : stStack s
-        if stPhase s == Pre && optPath opts == Nothing && n == optRoot opts
+        if stPhase s == Pre && n == optRoot opts
            then do
                lift $ dotHeader (stOFile s)
                --  hPutStrLn h "\t" ++ show n ++ " [label=\"root\"]"	--,color=green]
@@ -248,9 +245,12 @@ descEdge h parent node score =
     hPutStrLn h $ "\t" ++ parent ++ " -> " ++ node
                        ++ " [label=" ++ score ++ "]"
 
-drawAndShow dotf opts = do
-    system $ "dot -T" ++ format ++ " -o " ++ outFile ++ " " ++ dotf
+drawAndShow opts = do
+    system $ "dot -T" ++ format ++ " -o " ++ outFile ++ " " ++ dotFile opts
     runCommand outFile
     where format = "svg"
-          outFile = dotf' ++ "." ++ format
-          dotf' = reverse . drop 4 . reverse $ dotf
+          outFile = forFile opts format
+
+varFile opts = "root-" ++ show (optRoot opts)
+dotFile opts = varFile opts ++ ".dot"
+forFile opts format = varFile opts ++ "." ++ format
