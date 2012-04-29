@@ -139,6 +139,15 @@ lineok line = case line of
     ('L':'o':'g':':':' ':'*':'*':'*':_) -> Just (drop 8 line) 
     _                                   -> Nothing
 
+data Node = Node {
+                ndNumb :: Int,
+                ndAlpha, ndBeta :: Maybe Int,
+                ndDepth :: Maybe Int,
+                ndScore :: Maybe Int,
+                ndLeaf  :: Bool,
+                ndBCut  :: Bool
+            }
+
 data Phase = Pre | In | Post deriving Eq	-- before, during or after the visible tree
 
 data MyState = MyState {
@@ -146,14 +155,16 @@ data MyState = MyState {
                    stPhase   :: Phase,
                    stOFile   :: Handle,
                    stCounter :: !Int,
-                   stStack   :: [Int],
+                   stStack   :: [Node],
                    stPly     :: !Int,
                    stVizRoot :: !Int,
                    stVizPly  :: !Int
                }
 
+mkRoot d = Node { ndNumb = 0, ndAlpha = Just minBound, ndBeta = Just maxBound,
+                  ndDepth = Just d, ndScore = Nothing, ndLeaf = False, ndBCut = False }
 state0 = MyState { stOpened = False, stPhase = Pre, stOFile = undefined,
-                   stCounter = 1, stStack = [0], stPly = 0, stVizRoot = 0, stVizPly = 0 }
+                   stCounter = 1, stStack = [], stPly = 0, stVizRoot = 0, stVizPly = 0 }
 
 type Dotter = StateT MyState IO
 
@@ -169,6 +180,8 @@ updateNew opts sdepth = do
     s <- get
     when (stOpened s) closeDot
     when (idepth == optDepth opts) $ do
+        let rootnode = mkRoot (optDepth opts)
+            stk = [rootnode]
         h <- lift $ openFile (dotFile opts) WriteMode
         if optRoot opts == 0
            then do
@@ -176,25 +189,30 @@ updateNew opts sdepth = do
                lift $ do
                    dotHeader h
                    descNodeRoot h
-               put state0 { stOpened = True, stPhase = In,  stOFile = h }
+               put state0 { stOpened = True, stPhase = In,  stOFile = h, stStack = stk }
            else
-               put state0 { stOpened = True, stPhase = Pre, stOFile = h }
+               put state0 { stOpened = True, stPhase = Pre, stOFile = h, stStack = stk }
 
 updateDown :: Options -> String -> Dotter ()
 updateDown opts _ = do
     s <- get
     when (stOpened s) $ do
-        let n    = stCounter s
+        let node = Node { ndNumb = stCounter s, ndAlpha = Nothing, ndBeta = Nothing,
+                          ndDepth = Nothing, ndScore = Nothing, ndLeaf = True, ndBCut = False }
+            (pnode : sstk) = stStack s
             nPly = stPly s + 1
             vPly = if stPhase s == In then stVizPly s + 1 else stVizPly s
-            stk  = n : stStack s
-        if stPhase s == Pre && n == optRoot opts
+            stk  = if ndLeaf pnode
+                      then node : pnode { ndLeaf = False } : sstk
+                      else node : stStack s
+        if stPhase s == Pre && ndNumb node == optRoot opts
            then do
                lift $ dotHeader (stOFile s)
                --  hPutStrLn h "\t" ++ show n ++ " [label=\"root\"]"	--,color=green]
-               put s { stCounter = n + 1, stStack = stk, stPly = nPly,
-                       stPhase = In, stVizRoot = n }
-           else put s { stCounter = n + 1, stStack = stk, stPly = nPly, stVizPly = vPly }
+               put s { stCounter = stCounter s + 1, stStack = stk, stPly = nPly,
+                       stPhase = In, stVizRoot = stCounter s }
+           else put s { stCounter = stCounter s + 1, stStack = stk, stPly = nPly,
+                        stVizPly = vPly }
 
 updateUp :: Options -> String -> Dotter ()
 updateUp opts str = do
@@ -202,21 +220,21 @@ updateUp opts str = do
     when (stOpened s) $ do
         let (move : score : _) = words str
             (node : stk) = stStack s
-            parent = show . head $ stk
-            snode = show node
+            parent = show . ndNumb . head $ stk
             nPly = stPly s - 1
             vPly = if stPhase s == In then stVizPly s - 1 else stVizPly s
         when (stPhase s == In && stVizPly s <= optSDepth opts) $ do
             -- write the new node and the relation to the parent
-            if stVizPly s == optSDepth opts && nodeHadChildren node
-               then lift $ descNodeFrontier (stOFile s) snode move (stPly s)
-               else lift $ descNodeNormal   (stOFile s) snode move (stPly s)
-            lift $ descEdge (stOFile s) parent snode score
+            let descNodeA = if stVizPly s == optSDepth opts && nodeHasChildren node
+                               then descNodeFrontier
+                               else descNodeNormal
+            lift $ descNodeA (stOFile s) node move (stPly s)
+            lift $ descEdge (stOFile s) parent (ndNumb node) score
         if vPly < 0
            then put s { stPhase = Post, stStack = stk, stPly = nPly, stVizPly = vPly }
            else put s {                 stStack = stk, stPly = nPly, stVizPly = vPly }
 
-nodeHadChildren _ = False	-- dummy - we need node information!
+nodeHasChildren n = not $ ndLeaf n
 
 closeDot :: Dotter ()
 closeDot = do
@@ -229,20 +247,27 @@ dotHeader h = do
     hPutStrLn h "digraph pos {"
     hPutStrLn h "\tratio=auto"
     -- hPutStrLn h "\tsize=\"7.5,10\""
-    hPutStrLn h "\tnode [shape=circle]"
+    hPutStrLn h "\tnode [shape=circle,fontsize=10]"
 
-descNodeRoot h = hPutStrLn h "\t0 [label=\"root\"]"	--,color=green]
+descNodeRoot h = hPutStrLn h "\t0 [color=green,label=\"root\"]"	--,color=green]
 
+descNodeFrontier :: Handle -> Node -> String -> Int -> IO ()
 descNodeFrontier h node move ply =
-    hPutStrLn h $ "\t" ++ node ++ " [style=filled,color=gray,label=\""
-                       ++ move ++ " (" ++ node ++ ")\\n" ++ show ply ++ "\"]"
+    -- hPutStrLn h $ "\t" ++ sn ++ " [style=filled,color=gray,label=\""
+    hPutStrLn h $ "\t" ++ sn ++ " [shape=doublecircle,color=" ++ col ++ ",label=\""
+                       ++ move ++ " (" ++ sn ++ ")\\n" ++ show ply ++ "\"]"
+    where sn  = show $ ndNumb node
+          col = if even ply then "green" else "red"
 
+descNodeNormal :: Handle -> Node -> String -> Int -> IO ()
 descNodeNormal h node move ply =
-    hPutStrLn h $ "\t" ++ node ++ " [label=\""
-                       ++ move ++ " (" ++ node ++ ")\\n" ++ show ply ++ "\"]"
+    hPutStrLn h $ "\t" ++ sn ++ " [color=" ++ col ++ ",label=\""
+                       ++ move ++ " (" ++ sn ++ ")\\n" ++ show ply ++ "\"]"
+    where sn  = show $ ndNumb node
+          col = if even ply then "green" else "red"
 
-descEdge h parent node score =
-    hPutStrLn h $ "\t" ++ parent ++ " -> " ++ node
+descEdge h parent nn score =
+    hPutStrLn h $ "\t" ++ parent ++ " -> " ++ show nn
                        ++ " [label=" ++ score ++ "]"
 
 drawAndShow opts = do
