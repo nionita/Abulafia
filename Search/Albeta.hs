@@ -113,8 +113,11 @@ nulRedux, nulMoves :: Int
 nulRedux    = 2 -- depth reduction for null move
 nulMoves    = 2	-- how many null moves in sequence are allowed (one or two)
 nulMargin, nulSubmrg :: Int
-nulMargin   = 1		-- margin to search the null move (over beta)
-nulSubmrg   = 10	-- improved margin
+nulMargin   = 1		-- margin to search the null move (over beta) (in scoreGrain units!)
+nulSubmrg   = 2		-- improved margin (in scoreGrain units!)
+nulMarPath, nulSubPath :: Path
+nulMarPath  = fromIntegral (nulMargin * scoreGrain)
+nulSubPath  = fromIntegral (nulSubmrg * scoreGrain)
 nulSubAct :: Bool
 nulSubAct   = True
 
@@ -428,15 +431,15 @@ pvInnerRoot b d nst e = do
          -- lift $ logmes $ "Search root move " ++ show e ++ " a = " ++ show a ++ " b = " ++ show b
          -- do the move
          exd <- {-# SCC "newNode" #-} lift $ doEdge e False
-         viztreeDown e
-         newNode
+         nn <- newNode
+         viztreeDown nn e
          modify $ \s -> s { absdp = absdp s + 1 }
          s <- case exd of
                   Exten exd' -> pvInnerRootExten b d (special e) exd' nst
                   Final sco  -> return $! pathFromScore "Final" (-sco)
          -- undo the move
          lift $ undoEdge
-         viztreeUp e (pathScore s)
+         viztreeUp nn e (pathScore s)
          modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
          -- s' <- checkPath nst d "cpl 1" $ addToPath e (pnextlev s)
          s' <- checkPath nst d "cpl 1" $ addToPath e s
@@ -472,8 +475,9 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
     -- when (nullSeq pvpath' && forpv nst) $ lift
     --                     $ logmes $ "pvpath is null: d=" ++ show d ++ ", ownnt =" ++ show (ownnt nst)
     if forpv nst
-       then {-# SCC "forpvSearchRoot" #-}
-            pvSearch nst (-b) (-a) d' pvpath' nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 11"
+       then {-# SCC "forpvSearchRoot" #-} do
+           viztreeABD (pathScore $ -b) (pathScore $ -a) d'
+           pvSearch nst (-b) (-a) d' pvpath' nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 11"
        else {-# SCC "nullWindowRoot" #-} do
            -- no futility pruning for root moves!
            -- lift $ informStr $ "Search with closed window a = " ++ show (-a-scoreGrain)
@@ -484,6 +488,7 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
                         -- then {-# SCC "firstFromIIDRoot" #-} bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
                         then {-# SCC "firstFromIIDRoot" #-} bestMoveFromIID nst (-b) (-a) d' nulMoves
                         else {-# SCC "firstFromC&HRoot" #-} return pvpath'
+           viztreeABD (pathScore $ -a-pathGrain) (pathScore $ -a) d'
            s1 <- pvSearch nst (-a-pathGrain) (-a) d' pvpath nulMoves
                    >>= return . pnextlev >>= checkPath nst d' "cpl 2"
            abrt <- gets abort
@@ -492,15 +497,20 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
               else {-# SCC "nullWinResRoot" #-} do
                  -- here we didn't fail low and need re-search
                  pindent $ "Research! (" ++ show s1 ++ ")"
+                 viztreeReSe
+                 -- Try: no null move by re-search
                  -- let nst' = nst { ownnt = PVNode }
                  let nst' = nst { forpv = True }
                  if reduced && d > 1
                     then do	-- re-search with no reduce for root moves
                       let d''= fst $! nextDepth (d+exd') (movno nst) False True
-                      {-# SCC "nullWinResRootDD" #-} pvSearch nst' (-b) (-a) d'' pvpath nulMoves
+                      viztreeABD (pathScore $ -b) (pathScore $ -a) d''
+                      {-# SCC "nullWinResRootDD" #-} pvSearch nst' (-b) (-a) d'' pvpath 0
                          >>= return . pnextlev             >>= checkPath nst d'' "cpl 12"
-                    else {-# SCC "nullWinResRootSD" #-} pvSearch nst' (-b) (-a) d' pvpath nulMoves
-                            >>= return . pnextlev             >>= checkPath nst d' "cpl 13"
+                    else {-# SCC "nullWinResRootSD" #-} do
+                        viztreeABD (pathScore $ -b) (pathScore $ -a) d'
+                        pvSearch nst' (-b) (-a) d' pvpath 0	-- no null move next search
+                          >>= return . pnextlev             >>= checkPath nst d' "cpl 13"
 
 checkFailOrPVRoot :: Node m => SStats -> Path -> Int -> Move -> Path
                   -> NodeState -> Search m (Bool, NodeState)
@@ -638,7 +648,9 @@ pvSearch _ !a !b !d _ _ | d <= 0 = do
     return esc
 pvSearch nst !a !b !d lastpath lastnull = do
     pindent $ "=> " ++ show a ++ ", " ++ show b
-    nmhigh <- nullEdgeFailsHigh nst b d lastnull
+    nmhigh <- if not nulActivate || lastnull < 1 || ownnt nst == PVNode
+                 then return False
+                 else nullEdgeFailsHigh nst b d lastnull
     abrt <- gets abort
     if abrt || nmhigh
        then do
@@ -683,7 +695,7 @@ pvSearch nst !a !b !d lastpath lastnull = do
 
 nullEdgeFailsHigh :: Node m => NodeState -> Path -> Int -> Int -> Search m Bool
 nullEdgeFailsHigh nst b d lastnull =
-    if not nulActivate || lastnull < 1 || ownnt nst == PVNode || d1 <= 0
+    if d1 <= 0
        then return False
        else do
          tact <- lift tactical
@@ -691,17 +703,17 @@ nullEdgeFailsHigh nst b d lastnull =
             then return False
             else do
                lift nullEdge	-- do null move
-               viztreeDown0
+               nn <- newNode
+               viztreeDown0 nn
                inschool <- gets $ school . ronly
-               let !nmb = if nulSubAct && not inschool then b - snulSubmrg else b
+               let !nmb = if nulSubAct && not inschool then b - nulSubPath else b
                    !lastnull1 = lastnull - 1
-               val <- pvSearch nst (-nmb) (-nmb + snulMargin) d1 (emptySeq) lastnull1
+               viztreeABD (pathScore $ -nmb) (pathScore $ -nmb + nulMarPath) d1
+               val <- liftM negate $ pvSearch nst (-nmb) (-nmb + nulMarPath) d1 (emptySeq) lastnull1
                lift undoEdge	-- undo null move
-               viztreeUp0 (pathScore (-val))
-               return $! (-val) >= nmb
-    where snulMargin = pathFromScore "nulMargin" nulMargin
-          snulSubmrg = pathFromScore "nulSubmrg" nulSubmrg
-          !d1  = d - 1 - nulRedux
+               viztreeUp0 nn (pathScore val)
+               return $! val >= nmb
+    where !d1  = d - 1 - nulRedux
 
 -- This is the inner loop of the PV search, executed at every level (except root) once per possible move
 -- See the parameter
@@ -720,14 +732,14 @@ pvInnerLoop b d nst e = do
          old <- get
          pindent $ "-> " ++ show e
          exd <- {-# SCC "newNode" #-} lift $ doEdge e False	-- do the move
-         viztreeDown e
-         newNode
+         nn <- newNode
+         viztreeDown nn e
          modify $ \s -> s { absdp = absdp s + 1 }
          s <- case exd of
                   Exten exd' -> pvInnerLoopExten b d (special e) exd' nst
                   Final sco  -> return $! pathFromScore "Final" (-sco)
          lift $ undoEdge	-- undo the move
-         viztreeUp e (pathScore s)
+         viztreeUp nn e (pathScore s)
          modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
          -- s' <- checkPath nst d "cpl 8" $ addToPath e (pnextlev s)
          s' <- checkPath nst d "cpl 8" $ addToPath e s
@@ -774,6 +786,7 @@ pvInnerLoopExten b d spec exd nst = do
        else do
           if forpv nst
              then do
+                viztreeABD (pathScore $ -b) (pathScore $ -a) d'
                 pvpath <- if nullSeq pvpath_ then bestMoveFromHash else return pvpath_
                 pvSearch nst (-b) (-a) d' pvpath nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 14"
              else do
@@ -787,6 +800,7 @@ pvInnerLoopExten b d spec exd nst = do
                  if prune
                     then return v	-- we will fail low or high
                     else do
+                       viztreeABD (pathScore $ -a-pathGrain) (pathScore $ -a) d'
                        -- let pvpath = if null lastpath
                        --           then if hdeep > 0 && tp > 0 then [e'] else []
                        --           else lastpath
@@ -801,20 +815,25 @@ pvInnerLoopExten b d spec exd nst = do
                               >>= return . pnextlev >>= checkPath nst d "cpl 9"
                        abrt <- gets abort
                        if abrt || s1 <= a
-                          then return s1
+                          then return s1	-- failed low (as expected) or aborted
                           else do
-                            -- we need re-search
+                            -- we didn't fail low and need re-search
                             pindent $ "Research! (" ++ show s1 ++ ")"
+                            viztreeReSe
+                            -- Try: no null move by re-search
                             -- let nst' = nst { ownnt = PVNode }	-- always?
                             let nst' = nst { forpv = True }
                             if reduced && (d >= lmrMinDFRes || d >= 1 && inPv)
                             -- if reduced && d > 1
                                then do	-- re-search with no reduce (expensive!)
                                   let !d'' = fst $ nextDepth (d+exd') mn False inPv
-                                  pvSearch nst' (-b) (-a) d'' pvpath nulMoves
+                                  viztreeABD (pathScore $ -b) (pathScore $ -a) d''
+                                  pvSearch nst' (-b) (-a) d'' pvpath 0
                                     >>= return . pnextlev >>= checkPath nst d'' "cpl 15"
-                               else pvSearch nst' (-b) (-a) d' pvpath nulMoves
-                                      >>= return . pnextlev >>= checkPath nst d' "cpl 16"
+                               else do
+                                  viztreeABD (pathScore $ -b) (pathScore $ -a) d'
+                                  pvSearch nst' (-b) (-a) d' pvpath 0
+                                    >>= return . pnextlev >>= checkPath nst d' "cpl 16"
 
 pnearmate :: Path -> Bool
 pnearmate = nearmate . pathScore
@@ -998,14 +1017,14 @@ pvQInnerLoop b c a e = do
          -- here: delta pruning: captured piece + 200 > a? then go on, else return
          -- qindent $ "-> " ++ show e
          r <- {-# SCC "newNodeQS" #-} lift $ doEdge e True
-         viztreeDown e
-         newNodeQS
+         nn <- newNodeQS
+         viztreeDown nn e
          modify $ \s -> s { absdp = absdp s + 1 }
          sc <- liftM nextlev $ case r of
                  Final sc -> return sc
                  _        -> pvQSearch (-b) (-a) c
          lift $ undoEdge
-         viztreeUp e sc
+         viztreeUp nn e sc
          modify $ \s -> s { absdp = absdp s - 1 }	-- don't care about usedext here
          -- qindent $ "<- " ++ show e ++ " (" ++ show s ++ ")"
          abrt' <- gets abort
@@ -1065,6 +1084,13 @@ reportStats = do
 modStat :: Node m => (SStats -> SStats) -> Search m ()
 modStat f = modify $ \s -> case f (stats s) of st -> s { stats = st }
 
+modRetStat :: Node m => (SStats -> SStats) -> (SStats -> Int) -> Search m Int
+modRetStat f g = do
+    s <- get
+    let ss = f $ stats s
+    put s { stats = ss }
+    return $! g ss
+
 incNodes, incNodesQS :: SStats -> SStats
 incNodes   s = case sNodes s + 1 of n1 -> s { sNodes = n1 }
 incNodesQS s = case sNodes s + 1 of
@@ -1076,11 +1102,11 @@ incReTrieve s = case sRetr s + 1 of n1 -> s { sRetr = n1 }
 addReSucc :: Int -> SStats -> SStats
 addReSucc n s = case sRSuc s + n of n1 -> s { sRSuc = n1 }
 
-newNode :: Node m => Search m ()
-newNode   = modStat incNodes
+newNode :: Node m => Search m Int
+newNode   = modRetStat incNodes sNodes
 
-newNodeQS :: Node m => Search m ()
-newNodeQS = modStat incNodesQS
+newNodeQS :: Node m => Search m Int
+newNodeQS = modRetStat incNodesQS sNodes
 
 reTrieve :: Node m => Search m ()
 reTrieve  = modStat incReTrieve
@@ -1100,20 +1126,26 @@ pindent, qindent :: Node m => String -> Search m ()
 pindent = indentPassive
 qindent = indentPassive
 
-viztreeDown :: Node m => Move -> Search m ()
-viztreeDown e = when viztree $ lift $ logmes $ "***DOWN " ++ show e
+viztreeDown :: Node m => Int -> Move -> Search m ()
+viztreeDown n e = when viztree $ lift $ logmes $ "***DOWN " ++ show n ++ " " ++ show e
 
-viztreeDown0 :: Node m => Search m ()
-viztreeDown0 = when viztree $ lift $ logmes $ "***DOWN null"
+viztreeDown0 :: Node m => Int -> Search m ()
+viztreeDown0 n = when viztree $ lift $ logmes $ "***DOWN " ++ show n ++ " null"
 
-viztreeUp :: Node m => Move -> Int -> Search m ()
-viztreeUp e s = when viztree $ lift $ logmes $ "***UP " ++ show e ++ " " ++ show s
+viztreeUp :: Node m => Int -> Move -> Int -> Search m ()
+viztreeUp n e s = when viztree $ lift $ logmes $ "***UP " ++ show n ++ " " ++ show e ++ " " ++ show s
 
-viztreeUp0 :: Node m => Int -> Search m ()
-viztreeUp0 s = when viztree $ lift $ logmes $ "***UP null " ++ show s
+viztreeUp0 :: Node m => Int -> Int -> Search m ()
+viztreeUp0 n s = when viztree $ lift $ logmes $ "***UP " ++ show n ++ " null " ++ show s
 
 viztreeNew :: Node m => Int -> Search m ()
 viztreeNew d = when viztree $ lift $ logmes $ "***NEW " ++ show d
+
+viztreeABD :: Node m => Int -> Int -> Int -> Search m ()
+viztreeABD a b d = when viztree $ lift $ logmes $ "***ABD " ++ show a ++ " " ++ show b ++ " " ++ show d
+
+viztreeReSe :: Node m => Search m ()
+viztreeReSe = when viztree $ lift $ logmes "*** RESE"
 
 bestFirst :: Eq e => [e] -> [e] -> ([e], [e]) -> [e]
 bestFirst path kl (es1, es2)

@@ -2,6 +2,8 @@ module Main where
 
 import Control.Monad (when, forM_, mapM)
 import Control.Monad.State
+import Data.ByteString.Char8 (ByteString)
+import qualified Data.ByteString.Char8 as B
 import Data.Char (isSpace)
 import Data.Maybe (fromJust, fromMaybe)
 import System.Directory
@@ -126,24 +128,23 @@ procInput ih msh opts = do
               if eof
                   then closeDot >> maybe (return ()) (\h -> lift $ hClose h) msh
                   else do
-                      line <- lift $ hGetLine ih
+                      line <- lift $ B.hGetLine ih
                       case lineok line of
                           Just l  -> do
-                              maybe (return ()) (\h -> lift $ hPutStrLn h line) msh
+                              maybe (return ()) (\h -> lift $ B.hPutStrLn h line) msh
                               dispatch opts l
                           Nothing -> return ()
                       go
 
-lineok :: String -> Maybe String
-lineok line = case line of
-    ('L':'o':'g':':':' ':'*':'*':'*':_) -> Just (drop 8 line) 
-    _                                   -> Nothing
+lineok :: ByteString -> Maybe ByteString
+lineok line = if log `B.isPrefixOf` line then Just (B.drop 8 line) else Nothing
+    where log = B.pack "Log: ***"
 
 data Node = Node {
-                ndNumb :: Int,
-                ndAlpha, ndBeta :: Maybe Int,
-                ndDepth :: Maybe Int,
-                ndScore :: Maybe Int,
+                ndNumb  :: Int,
+                ndIntv  :: Maybe ByteString,
+                ndDepth :: Maybe ByteString,
+                ndScore :: Maybe ByteString,
                 ndLeaf  :: Bool,
                 ndBCut  :: Bool
             }
@@ -161,26 +162,32 @@ data MyState = MyState {
                    stVizPly  :: !Int
                }
 
-mkRoot d = Node { ndNumb = 0, ndAlpha = Just minBound, ndBeta = Just maxBound,
+mkRoot d = Node { ndNumb = 0, ndIntv = Just (B.pack "(-inf,+inf)"),
                   ndDepth = Just d, ndScore = Nothing, ndLeaf = False, ndBCut = False }
 state0 = MyState { stOpened = False, stPhase = Pre, stOFile = undefined,
                    stCounter = 1, stStack = [], stPly = 0, stVizRoot = 0, stVizPly = 0 }
 
 type Dotter = StateT MyState IO
 
-dispatch :: Options -> String -> Dotter ()
-dispatch opts line = case break isSpace line of
-    ("NEW",  rest) -> updateNew  opts $ drop 1 rest
-    ("DOWN", rest) -> updateDown opts $ drop 1 rest
-    ("UP",   rest) -> updateUp   opts $ drop 1 rest
+dispatch :: Options -> ByteString -> Dotter ()
+dispatch opts line = case B.break isSpace line of	-- break on first space
+    (verb,  rest) | verb == new  -> updateNew  opts $ B.drop 1 rest
+                  | verb == down -> updateDown opts $ B.drop 1 rest
+                  | verb == up   -> updateUp   opts $ B.drop 1 rest
+                  | verb == abd  -> updateABD  opts $ B.drop 1 rest
+                  | otherwise    -> return ()
+    where new  = B.pack "NEW"
+          down = B.pack "DOWN"
+          up   = B.pack "UP"
+          abd  = B.pack "ABD"
 
-updateNew :: Options -> String -> Dotter ()
+updateNew :: Options -> ByteString -> Dotter ()
 updateNew opts sdepth = do
-    let idepth = read sdepth
+    let idepth = read $ B.unpack sdepth
     s <- get
     when (stOpened s) closeDot
     when (idepth == optDepth opts) $ do
-        let rootnode = mkRoot (optDepth opts)
+        let rootnode = mkRoot (B.pack $ show $ optDepth opts)
             stk = [rootnode]
         h <- lift $ openFile (dotFile opts) WriteMode
         if optRoot opts == 0
@@ -193,12 +200,14 @@ updateNew opts sdepth = do
            else
                put state0 { stOpened = True, stPhase = Pre, stOFile = h, stStack = stk }
 
-updateDown :: Options -> String -> Dotter ()
-updateDown opts _ = do
+updateDown :: Options -> ByteString -> Dotter ()
+updateDown opts bs = do
     s <- get
     when (stOpened s) $ do
-        let node = Node { ndNumb = stCounter s, ndAlpha = Nothing, ndBeta = Nothing,
-                          ndDepth = Nothing, ndScore = Nothing, ndLeaf = True, ndBCut = False }
+        let nn = maybe (-1) fst $ B.readInt bs
+            -- node = Node { ndNumb = stCounter s, ndIntv = Nothing,
+            node = Node { ndNumb = nn, ndIntv = Nothing, ndDepth = Nothing,
+                          ndScore = Nothing, ndLeaf = True, ndBCut = False }
             (pnode : sstk) = stStack s
             nPly = stPly s + 1
             vPly = if stPhase s == In then stVizPly s + 1 else stVizPly s
@@ -208,23 +217,26 @@ updateDown opts _ = do
         if stPhase s == Pre && ndNumb node == optRoot opts
            then do
                lift $ dotHeader (stOFile s)
-               --  hPutStrLn h "\t" ++ show n ++ " [label=\"root\"]"	--,color=green]
                put s { stCounter = stCounter s + 1, stStack = stk, stPly = nPly,
-                       stPhase = In, stVizRoot = stCounter s }
+                       stPhase = In, stVizRoot = nn }
            else put s { stCounter = stCounter s + 1, stStack = stk, stPly = nPly,
                         stVizPly = vPly }
 
-updateUp :: Options -> String -> Dotter ()
-updateUp opts str = do
+updateUp :: Options -> ByteString -> Dotter ()
+updateUp opts bs = do
     s <- get
     when (stOpened s) $ do
-        let (move : score : _) = words str
+        let (snn : move : score : _) = B.words bs
             (node : stk) = stStack s
             parent = show . ndNumb . head $ stk
             nPly = stPly s - 1
             vPly = if stPhase s == In then stVizPly s - 1 else stVizPly s
+            snn' = B.unpack snn
+        when (read snn' /= ndNumb node) $ liftIO
+            $ ioError (userError $ "Up: wrong node: " ++ snn' ++ ", expect " ++ show (ndNumb node))
         when (stPhase s == In && stVizPly s <= optSDepth opts) $ do
             -- write the new node and the relation to the parent
+            -- nodes on the frontier are represented differently
             let descNodeA = if stVizPly s == optSDepth opts && nodeHasChildren node
                                then descNodeFrontier
                                else descNodeNormal
@@ -234,7 +246,19 @@ updateUp opts str = do
            then put s { stPhase = Post, stStack = stk, stPly = nPly, stVizPly = vPly }
            else put s {                 stStack = stk, stPly = nPly, stVizPly = vPly }
 
-nodeHasChildren n = not $ ndLeaf n
+updateABD :: Options -> ByteString -> Dotter ()
+updateABD opts str = do
+    s <- get
+    when (stOpened s) $ do
+        let (node : stk) = stStack s
+            (a:b:d:_)    = B.words str
+            node' = node { ndIntv = Just (B.concat [left,a,coma,b,right]), ndDepth = Just d }
+        put s { stStack = node' : stk }
+    where left  = B.pack "("
+          right = B.pack ")"
+          coma  = B.pack ","
+
+nodeHasChildren = not . ndLeaf
 
 closeDot :: Dotter ()
 closeDot = do
@@ -247,28 +271,39 @@ dotHeader h = do
     hPutStrLn h "digraph pos {"
     hPutStrLn h "\tratio=auto"
     -- hPutStrLn h "\tsize=\"7.5,10\""
-    hPutStrLn h "\tnode [shape=circle,fontsize=10]"
+    -- hPutStrLn h "\tnode [shape=circle,fontsize=10]"
+    hPutStrLn h "\tnode [shape=box,fontsize=10]"
 
 descNodeRoot h = hPutStrLn h "\t0 [color=green,label=\"root\"]"	--,color=green]
 
-descNodeFrontier :: Handle -> Node -> String -> Int -> IO ()
+descNodeFrontier :: Handle -> Node -> ByteString -> Int -> IO ()
 descNodeFrontier h node move ply =
     -- hPutStrLn h $ "\t" ++ sn ++ " [style=filled,color=gray,label=\""
-    hPutStrLn h $ "\t" ++ sn ++ " [shape=doublecircle,color=" ++ col ++ ",label=\""
-                       ++ move ++ " (" ++ sn ++ ")\\n" ++ show ply ++ "\"]"
-    where sn  = show $ ndNumb node
-          col = if even ply then "green" else "red"
+    -- hPutStrLn h $ "\t" ++ sn ++ " [shape=doublecircle,color=" ++ col ++ ",label=\""
+    hPutStrLn h $ "\t" ++ sn ++ " [peripheries=2,color=" ++ col ++ ",label=\""
+                       ++ label node move ply ++ "\"]"
+    where col = if even ply then "green" else "red"
+          sn   = show $ ndNumb node
 
-descNodeNormal :: Handle -> Node -> String -> Int -> IO ()
+descNodeNormal :: Handle -> Node -> ByteString -> Int -> IO ()
 descNodeNormal h node move ply =
     hPutStrLn h $ "\t" ++ sn ++ " [color=" ++ col ++ ",label=\""
-                       ++ move ++ " (" ++ sn ++ ")\\n" ++ show ply ++ "\"]"
-    where sn  = show $ ndNumb node
-          col = if even ply then "green" else "red"
+                       ++ label node move ply ++ "\"]"
+    where col = if even ply then "green" else "red"
+          sn   = show $ ndNumb node
 
 descEdge h parent nn score =
     hPutStrLn h $ "\t" ++ parent ++ " -> " ++ show nn
-                       ++ " [label=" ++ score ++ "]"
+                       ++ " [label=" ++ B.unpack score ++ "]"
+
+label node move ply
+    = B.unpack move ++ " [" ++ sn ++ "/" ++ show ply ++ "]"
+    ++ term ++ dept ++ inte ++ intv
+    where term = if ndDepth node == Nothing && ndIntv node == Nothing then "" else "\\n"
+          inte = if ndDepth node /= Nothing && ndIntv node /= Nothing then ": " else ""
+          dept = maybe "" B.unpack $ ndDepth node
+          intv = maybe "" (\i -> "(" ++ B.unpack i ++ ")") $ ndIntv node
+          sn   = show $ ndNumb node
 
 drawAndShow opts = do
     system $ "dot -T" ++ format ++ " -o " ++ outFile ++ " " ++ dotFile opts
