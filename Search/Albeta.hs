@@ -28,7 +28,7 @@ import Moves.Base
 
 -- To generate info for tree vizualization
 viztree :: Bool
-viztree = True
+viztree = False
 
 -- Parameter for aspiration
 useAspirWin :: Bool
@@ -498,7 +498,7 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
                  -- here we didn't fail low and need re-search
                  pindent $ "Research! (" ++ show s1 ++ ")"
                  viztreeReSe
-                 -- Try: no null move by re-search
+                 -- Try: no null move in re-search
                  -- let nst' = nst { ownnt = PVNode }
                  let nst' = nst { forpv = True }
                  if reduced && d > 1
@@ -560,8 +560,7 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
                                               else return $ killer nst
                                   else return $ killer nst
                       xpvslb <- insertToPvs d pvb (pvsl nst)	-- the bad
-                      let nst1 = nst { movno = mn + 1, pvsl = xpvslb,
-                                       killer = kill1, pvcont = emptySeq }
+                      let nst1 = nst { movno = mn + 1, pvsl = xpvslb, killer = kill1, pvcont = emptySeq }
                       return (False, nst1)
                else if s >= b
                  then {-# SCC "scoreBetaCutRoot" #-} do
@@ -694,10 +693,9 @@ pvSearch nst !a !b !d lastpath lastnull = do
                      -- return $! combinePath s a
 
 nullEdgeFailsHigh :: Node m => NodeState -> Path -> Int -> Int -> Search m Bool
-nullEdgeFailsHigh nst b d lastnull =
-    if d1 <= 0
-       then return False
-       else do
+nullEdgeFailsHigh nst b d lastnull
+    | d1 <= 0   = return False
+    | otherwise = do
          tact <- lift tactical
          if tact
             then return False
@@ -709,7 +707,7 @@ nullEdgeFailsHigh nst b d lastnull =
                let !nmb = if nulSubAct && not inschool then b - nulSubPath else b
                    !lastnull1 = lastnull - 1
                viztreeABD (pathScore $ -nmb) (pathScore $ -nmb + nulMarPath) d1
-               val <- liftM negate $ pvSearch nst (-nmb) (-nmb + nulMarPath) d1 (emptySeq) lastnull1
+               val <- liftM negate $ pvSearch nst (-nmb) (-nmb + nulMarPath) d1 emptySeq lastnull1
                lift undoEdge	-- undo null move
                viztreeUp0 nn (pathScore val)
                return $! val >= nmb
@@ -773,7 +771,7 @@ pvInnerLoopExten b d spec exd nst = do
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
               ++ " forpv " ++ show (forpv nst)
     (hdeep, tp, hscore, e', nodes')
-        <- if (useTTinPv || not (forpv nst)) && d >= minToRetr
+        <- if (useTTinPv || not (forpv nst)) && d >= minToRetr	-- Fixme! This is not PV!!!
               then {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
               else return (-1, 0, 0, undefined, 0)
     let ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'],
@@ -820,7 +818,7 @@ pvInnerLoopExten b d spec exd nst = do
                             -- we didn't fail low and need re-search
                             pindent $ "Research! (" ++ show s1 ++ ")"
                             viztreeReSe
-                            -- Try: no null move by re-search
+                            -- Try: no null move in re-search
                             -- let nst' = nst { ownnt = PVNode }	-- always?
                             let nst' = nst { forpv = True }
                             if reduced && (d >= lmrMinDFRes || d >= 1 && inPv)
@@ -1145,7 +1143,7 @@ viztreeABD :: Node m => Int -> Int -> Int -> Search m ()
 viztreeABD a b d = when viztree $ lift $ logmes $ "***ABD " ++ show a ++ " " ++ show b ++ " " ++ show d
 
 viztreeReSe :: Node m => Search m ()
-viztreeReSe = when viztree $ lift $ logmes "*** RESE"
+viztreeReSe = when viztree $ lift $ logmes "***RESE"
 
 bestFirst :: Eq e => [e] -> [e] -> ([e], [e]) -> [e]
 bestFirst path kl (es1, es2)

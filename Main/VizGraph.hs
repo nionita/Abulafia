@@ -142,10 +142,10 @@ lineok line = if log `B.isPrefixOf` line then Just (B.drop 8 line) else Nothing
 
 data Node = Node {
                 ndNumb  :: Int,
-                ndIntv  :: Maybe ByteString,
-                ndDepth :: Maybe ByteString,
+                ndDIntv :: [ByteString],
                 ndScore :: Maybe ByteString,
                 ndLeaf  :: Bool,
+                ndRese  :: Bool,
                 ndBCut  :: Bool
             }
 
@@ -162,8 +162,8 @@ data MyState = MyState {
                    stVizPly  :: !Int
                }
 
-mkRoot d = Node { ndNumb = 0, ndIntv = Just (B.pack "(-inf,+inf)"),
-                  ndDepth = Just d, ndScore = Nothing, ndLeaf = False, ndBCut = False }
+mkRoot d = Node { ndNumb = 0, ndDIntv = [B.pack $ d ++ ":(-inf,+inf)"],
+                  ndScore = Nothing, ndLeaf = False, ndRese = False, ndBCut = False }
 state0 = MyState { stOpened = False, stPhase = Pre, stOFile = undefined,
                    stCounter = 1, stStack = [], stPly = 0, stVizRoot = 0, stVizPly = 0 }
 
@@ -175,11 +175,13 @@ dispatch opts line = case B.break isSpace line of	-- break on first space
                   | verb == down -> updateDown opts $ B.drop 1 rest
                   | verb == up   -> updateUp   opts $ B.drop 1 rest
                   | verb == abd  -> updateABD  opts $ B.drop 1 rest
+                  | verb == rese -> updateRese opts $ B.drop 1 rest
                   | otherwise    -> return ()
     where new  = B.pack "NEW"
           down = B.pack "DOWN"
           up   = B.pack "UP"
           abd  = B.pack "ABD"
+          rese = B.pack "RESE"
 
 updateNew :: Options -> ByteString -> Dotter ()
 updateNew opts sdepth = do
@@ -187,7 +189,7 @@ updateNew opts sdepth = do
     s <- get
     when (stOpened s) closeDot
     when (idepth == optDepth opts) $ do
-        let rootnode = mkRoot (B.pack $ show $ optDepth opts)
+        let rootnode = mkRoot (show $ optDepth opts)
             stk = [rootnode]
         h <- lift $ openFile (dotFile opts) WriteMode
         if optRoot opts == 0
@@ -206,8 +208,8 @@ updateDown opts bs = do
     when (stOpened s) $ do
         let nn = maybe (-1) fst $ B.readInt bs
             -- node = Node { ndNumb = stCounter s, ndIntv = Nothing,
-            node = Node { ndNumb = nn, ndIntv = Nothing, ndDepth = Nothing,
-                          ndScore = Nothing, ndLeaf = True, ndBCut = False }
+            node = Node { ndNumb = nn, ndDIntv = [], ndScore = Nothing,
+                          ndLeaf = True, ndRese = False, ndBCut = False }
             (pnode : sstk) = stStack s
             nPly = stPly s + 1
             vPly = if stPhase s == In then stVizPly s + 1 else stVizPly s
@@ -228,7 +230,7 @@ updateUp opts bs = do
     when (stOpened s) $ do
         let (snn : move : score : _) = B.words bs
             (node : stk) = stStack s
-            parent = show . ndNumb . head $ stk
+            parent = head stk
             nPly = stPly s - 1
             vPly = if stPhase s == In then stVizPly s - 1 else stVizPly s
             snn' = B.unpack snn
@@ -252,11 +254,21 @@ updateABD opts str = do
     when (stOpened s) $ do
         let (node : stk) = stStack s
             (a:b:d:_)    = B.words str
-            node' = node { ndIntv = Just (B.concat [left,a,coma,b,right]), ndDepth = Just d }
+            dab          = B.concat [d,colo,left,a,coma,b,right]
+            node' = node { ndDIntv = dab : ndDIntv node }
         put s { stStack = node' : stk }
     where left  = B.pack "("
           right = B.pack ")"
           coma  = B.pack ","
+          colo  = B.pack ":"
+
+updateRese :: Options -> ByteString -> Dotter ()
+updateRese opts _ = do
+    s <- get
+    when (stOpened s) $ do
+        let (node : stk) = stStack s
+            node' = node { ndRese = True }
+        put s { stStack = node' : stk }
 
 nodeHasChildren = not . ndLeaf
 
@@ -293,17 +305,15 @@ descNodeNormal h node move ply =
           sn   = show $ ndNumb node
 
 descEdge h parent nn score =
-    hPutStrLn h $ "\t" ++ parent ++ " -> " ++ show nn
-                       ++ " [label=" ++ B.unpack score ++ "]"
+    hPutStrLn h $ "\t" ++ parnum ++ " -> " ++ show nn
+                       ++ " [label=" ++ B.unpack score ++ color ++ "]"
+    where color = if ndRese parent then ",color=red" else ""
+          parnum = show . ndNumb $ parent
 
-label node move ply
-    = B.unpack move ++ " [" ++ sn ++ "/" ++ show ply ++ "]"
-    ++ term ++ dept ++ inte ++ intv
-    where term = if ndDepth node == Nothing && ndIntv node == Nothing then "" else "\\n"
-          inte = if ndDepth node /= Nothing && ndIntv node /= Nothing then ": " else ""
-          dept = maybe "" B.unpack $ ndDepth node
-          intv = maybe "" (\i -> "(" ++ B.unpack i ++ ")") $ ndIntv node
-          sn   = show $ ndNumb node
+label node move ply = foldl center base $ reverse $ ndDIntv node
+    where sn   = show $ ndNumb node
+          base = B.unpack move ++ " [" ++ sn ++ "/" ++ show ply ++ "]"
+          center a b = a ++ "\\n" ++ B.unpack b
 
 drawAndShow opts = do
     system $ "dot -T" ++ format ++ " -o " ++ outFile ++ " " ++ dotFile opts
