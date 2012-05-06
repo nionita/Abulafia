@@ -20,7 +20,6 @@ data ABControl = ABC {
         lastscore :: Maybe Int,
         rootmvs   :: [Move],
         window    :: Int,
-        learnev   :: Bool,
         best      :: Bool,
         stoptime  :: Int
     } deriving Show
@@ -41,7 +40,6 @@ class Monad m => Node m where
     nullEdge :: m ()		   -- do null move (and also undo)
     retrieve :: m (Int, Int, Int, Move, Int)   -- retrieve the position in hash
     store :: Int -> Int -> Int -> Move -> Int -> m () -- store the position in hash
-    learn :: Int -> Int -> Int -> Int -> m ()	-- learn the evaluation parameters
     curNodes :: m Int
     inform :: Comm -> m ()		-- communicate to the world (log, current and best move)
     choose :: Bool -> [(Int, [Move])] -> m (Int, [Move])

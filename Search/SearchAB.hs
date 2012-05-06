@@ -116,7 +116,6 @@ data Killer = NoKiller | OneKiller Move Int | TwoKillers Move Int Move Int
 -- Read only parameters of the search, so that we can change them programatically
 data PVReadOnly
     = PVReadOnly {
-          school :: !Bool,	-- running in learning mode
           albest :: !Bool,	-- always choose the best move (i.e. first)
           timeli :: !Bool,	-- do we have time limit?
           abmili :: !Int	-- abort when after this milisecond
@@ -134,7 +133,7 @@ nextNodeType t      = t
 newtype Alt e = Alt { unalt :: [e] } deriving Show
 newtype Seq e = Seq { unseq :: [e] } deriving Show
 
-pvro00 = PVReadOnly { school = False, albest = False, timeli = False, abmili = 0 }
+pvro00 = PVReadOnly { albest = False, timeli = False, abmili = 0 }
 
 alphaBeta :: Node m => ABControl -> m (Int, [Move], [Move])
 alphaBeta abc = {-# SCC "alphaBeta" #-} do
@@ -145,9 +144,8 @@ alphaBeta abc = {-# SCC "alphaBeta" #-} do
         searchLow       b = pvRootSearch alpha0 b     d lpv rmvs True
         searchHigh    a   = pvRootSearch a      beta0 d lpv rmvs True
         searchFull        = pvRootSearch alpha0 beta0 d lpv rmvs False	-- ???
-        pvro = PVReadOnly { school = learnev abc, albest = best abc,
+        pvro = PVReadOnly { albest = best abc,
                             timeli = stoptime abc /= 0, abmili = stoptime abc }
-        -- pvs0 = if learnev abc then pvsInit { ronly = pvro1 } else pvsInit
         pvs0 = pvsInit { ronly = pvro } :: PVState
     r <- if useAspirWin
          then case lastscore abc of

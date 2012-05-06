@@ -65,10 +65,10 @@ getPlayer d1 d2 fil = do
     let f1 = d1 </> fil
         f2 = d2 </> fil
     cex <- doesFileExist f1
-    if cex then Just . esDParams <$> fileToState False f1
+    if cex then Just . esDParams <$> fileToState f1
            else do
                pex <- doesFileExist f2
-               if pex then Just . esDParams <$> fileToState False f2
+               if pex then Just . esDParams <$> fileToState f2
                       else return Nothing
 
 calcAverage pmp (t, pls) = (t, map (/n) $ foldl (zipWith (+)) (repeat 0) vs)

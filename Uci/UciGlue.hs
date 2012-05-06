@@ -38,7 +38,6 @@ bestMoveCont tiefe sttime stati lastsc lpv rmvs = do
                 lastscore = lastsc,
                 rootmvs   = rmvs,
                 window    = aspirWindow,
-                learnev   = learnEval,
                 best      = False,
                 stoptime  = sttime
                 }
@@ -47,37 +46,7 @@ bestMoveCont tiefe sttime stati lastsc lpv rmvs = do
     let n = nodes . stats $ statf
     informGui sc tiefe n path
     ctxLog "Info" $ "score " ++ show sc ++ " path " ++ show path
-    -- let math = stats statf
-    -- ctxLog "Info" $ "Node reads " ++ show (nreads math) ++ ", read hits "
-    --     ++ show (rhits math) ++ ", read colls " ++ show (rcoll math)
-    --     ++ ", node writes " ++ show (nwrites math) ++ ", write colls "
-    --     ++ show (wcoll math)
-    if learnEval && esSamples (evalst statf) > 0
-        then do
-            let evst = evalst statf
-                evstf = evalState adjEval evst
-            ctxLog "Info" $! "Eval params dev  : " ++ show (esDeviation evst)
-                ++ " samples: " ++ show (esSamples evst)
-            ctxLog "Info" $! "Eval params old D: " ++ show (esDParams evst)
-            ctxLog "Info" $! "Eval params new D: " ++ show (esDParams evstf)
-            ctxLog "Info" $! "Gradient step    : " ++ show (esAlpha evstf)
-            ctxLog "Info" $! "Mean error amt   : " ++ show (esAmpl evstf)
-            ctxLog "Info" $! "Last error angle : " ++ show (esAngle evstf)
-            when (esIParams evst /= esIParams evstf) $ do
-                ctxLog "Info" $! "Eval params I old / new (only changes):"
-                forM_ (zip paramNames $ zip (esIParams evst) (esIParams evstf)) $
-                    \(n', (vo, vn))
-                        -> when (vn /= vo) $
-                                ctxLog "Info" $! n' ++ "\t" ++ show vo ++ "\t" ++ show vn
-            when (showEvalStats && tiefe >= 6) $
-                ctxLog "Info" $! "Eval statistics: " ++ "\n"
-                   ++ unlines [ "dpt " ++ show d ++ ": " ++ showline li
-                                 | d <- [1..maxStatsDepth], let li = getline (esStats evst) d ]
-            return (path, sc, rmvsf, statf { evalst = evstf } )
-        else
-            return (path, sc, rmvsf, statf)
-    where showline = unwords . map show
-          getline a l = [ a!(l, i) | i <- [0..maxStatsIntvs]]
+    return (path, sc, rmvsf, statf)
 
 talkToContext :: Comm -> CtxIO ()
 talkToContext (LogMes s)       = ctxLog "Info" s

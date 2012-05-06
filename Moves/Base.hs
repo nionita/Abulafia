@@ -8,7 +8,7 @@ module Moves.Base (
     CtxMon(..),
     posToState, initPos, getPos, posNewSearch,
     doMove, undoMove, genMoves, genTactMoves,
-    useHash, learnEval,
+    useHash,
     staticVal0, mateScore,
     showMyPos,
     nextlev, nearmate, special
@@ -72,7 +72,6 @@ instance CtxMon m => Node (Game r m) where
     nullEdge = doNullMove
     retrieve = currDSP
     store = storeSearch
-    learn = learnEvals
     {-# INLINE curNodes #-}
     curNodes = getNodes
     inform = SM.lift . tellCtx
@@ -80,20 +79,15 @@ instance CtxMon m => Node (Game r m) where
     timeout = isTimeout
 
 -- Some options and parameters:
-debug, useHash, learnEval :: Bool
+debug, useHash :: Bool
 debug       = False
 useHash     = True
-learnEval   = False
 
 depthForMovesSortPv, depthForMovesSort, scoreDiffEqual :: Int
 depthForMovesSortPv = 1	-- use history for sorting moves when pv or cut nodes
 depthForMovesSort   = 1	-- use history for sorting moves
 scoreDiffEqual      = 4 -- under this score difference moves are considered to be equal (choose random)
 -- scoreDiffEqual      = 0 -- under this score difference moves are considered to be equal (choose random)
-
-minLearnDepth, maxLearnDepth :: Int
-minLearnDepth = 1
-maxLearnDepth = 1
 
 mateScore :: Int
 mateScore = 20000
@@ -334,31 +328,6 @@ materVal0 = do
 -- quiet :: MyPos -> Bool
 -- quiet p = at .&. ta == 0
 --     where (!at, !ta) = if moving p == White then (whAttacs p, black p) else (blAttacs p, white p)
-
-learnEvals :: CtxMon m => Int -> Int -> Int -> Int -> Game r m ()
-learnEvals depth typ score score0 = do
-    s <- get
-    t <- getPos
-    -- let sts = staticScore t
-        -- fscore = fLearnMatEnPri (staticFeats t)
-    -- if not learnEval || not (quiet t) || null (staticFeats t)
-    --   || typ == 1 && sts >= score || typ == 0 && sts <= score || typ == 2 && sts == score
-    if not learnEval || null (staticFeats t)
-       -- || typ == 1 && sts >= score || typ == 0 && sts <= score
-       || typ == 1 && score0 >= score || typ == 0 && score0 <= score
-       || depth < minLearnDepth || depth > maxLearnDepth
-       then return ()
-       else do
-           -- let nevst = evalState (cntEval depth sts score (staticFeats t)) (evalst s)
-           let nevst = evalState (cntEval depth score0 score (staticFeats t)) (evalst s)
-           -- Test: try to learn other functions of the features:
-           -- let nevst = evalState (cntEval depth sts fscore (staticFeats t)) (evalst s)
-           put s { evalst = nevst }
-
--- Test: learn other (teoretical) functions (of position features)
--- Here: sum of material and en prise fraction
--- fLearnMatEnPri :: [Int] -> Int
--- fLearnMatEnPri xs = xs!!0 + xs!!1	-- shoud drive the parameters to [1, 1, 0, ...]
 
 {-# INLINE currDSP #-}
 currDSP :: CtxMon m => Game r m (Int, Int, Int, Move, Int)

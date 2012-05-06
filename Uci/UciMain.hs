@@ -26,7 +26,7 @@ import Eval.Eval (paramNames)
 import Eval.FileParams (makeEvalState, learnConfigFilePrefix)
 
 forceLogging :: Bool
-forceLogging = True || learnEval
+forceLogging = True
 
 initContext :: GConfig -> IO Context
 initContext cf@(GConfig cfg) = do
@@ -40,7 +40,7 @@ initContext cf@(GConfig cfg) = do
     hi <- newHist
     args <- getArgs
     let argFile = if null args then Nothing else Just (head args)
-    (parc, evs) <- makeEvalState learnEval cfg progVersion argFile
+    (parc, evs) <- makeEvalState cfg progVersion argFile
     let chg = Chg {
             config = cf,
             working = False,
@@ -399,14 +399,7 @@ beforeReadLoop = do
     forM_ (zip paramNames (esDParams evst)) $ \(n, v) -> ctxLog "Info" $! n ++ "\t" ++ show v
 
 beforeProgExit :: CtxIO ()
-beforeProgExit = when learnEval $ do
-    chg <- readChanging
-    let evst = evalst $ crtStatus chg
-    lift $ do
-        crtt <- currentSecs
-        let newEvalFile = learnConfigFilePrefix ++ show crtt ++ ".txt"
-        writeFile newEvalFile $
-           unlines $ map (\(n, v) -> n ++ " = " ++ show v) $ zip paramNames $ esDParams evst
+beforeProgExit = return ()
 
 doStop :: Bool -> CtxIO ()
 doStop extern = do

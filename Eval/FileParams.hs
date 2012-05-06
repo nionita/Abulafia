@@ -20,33 +20,26 @@ learnConfigFilePrefix :: String
 learnConfigFilePrefix = "evalParamsL"
 
 -- Opens a parameter file for eval, read it and create an eval state
--- When learning, take the latest eval file of the form "evalParamsL*.txt"
-makeEvalState :: Config c => Bool -> c -> String -> Maybe FilePath -> IO (FilePath, EvalState)
-makeEvalState learn cfg pver argfile =
+makeEvalState :: Config c => c -> String -> Maybe FilePath -> IO (FilePath, EvalState)
+makeEvalState cfg pver argfile =
     case argfile of
         Just afn -> do	-- config file as argument: it must be an evolution play
             fex <- doesFileExist afn
-            if fex then filState afn afn learn else defState
-        Nothing  -> if learn	-- config from an earlier learned param file
-                    then do
-                         mecfn <- getLastEvalConfigFile
-                         case mecfn of
-                           Just ecfn -> filState ecfn "" learn
-                           Nothing   -> defState
-                    else case evalConfigFile cfg pver of	-- from general config
+            if fex then filState afn afn else defState
+        Nothing  -> case evalConfigFile cfg pver of	-- from general config
                            Nothing -> defState
                            Just fn -> do
                                fex <- doesFileExist fn
-                               if fex then filState fn "" learn else defState
-    where defState = return ("", initEvalState learn [])
+                               if fex then filState fn "" else defState
+    where defState = return ("", initEvalState [])
 
-filState :: FilePath -> String -> Bool -> IO (String, EvalState)
-filState fn ident learn = do
-    est <- fileToState learn fn
+filState :: FilePath -> String -> IO (String, EvalState)
+filState fn ident = do
+    est <- fileToState fn
     return (ident, est)
 
-fileToState :: Bool -> FilePath -> IO EvalState
-fileToState learn fn = fileToParams `fmap` readFile fn >>= return . initEvalState learn
+fileToState :: FilePath -> IO EvalState
+fileToState fn = fileToParams `fmap` readFile fn >>= return . initEvalState
 
 evalConfigFile :: Config c => c -> String -> Maybe String
 evalConfigFile cfg pver = getSParam cfg "evalParamsFile"

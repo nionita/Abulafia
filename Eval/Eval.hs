@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns, PatternGuards, ExistentialQuantification #-}
 module Eval.Eval (
-    initEvalState, initEvalStateV,
-    posEval, adjEval, cntEval,
+    initEvalState,
+    posEval,
     maxStatsDepth, maxStatsIntvs,
     inLimits,
     paramNames, parLims, parDim
@@ -17,9 +17,7 @@ import Struct.Status
 import Moves.Moves
 import Moves.BitBoard
 import Moves.Muster
--- import Moves.Board
--- import Moves.SEE
-import Eval.Gradient
+-- import Eval.Gradient
 import Eval.BasicEval
 
 -- Criteria (x2, once for every player):
@@ -137,41 +135,20 @@ samplesPerChange :: Int
 samplesPerChange = 10	-- number of samples before a parameter change occurs
 -----------------------------------------------
 
-initEvalState :: Bool -> [(String, Double)] -> EvalState
-initEvalState learn sds = EvalState {
-        esLearning = learn,
-        esSamples = 0, esSteps = 0,
-        esAlpha = minStep,
-        esAngle = 0, esAmpl = 0, esFNorm = 0,
+initEvalState :: [(String, Double)] -> EvalState
+initEvalState sds = EvalState {
         esDParams = params,
-        esDeviation = zeroParam,
-        esLastDev = zeroParam,
-        esIParams = map round params,
-        esStats = listArray ((1, 0), (maxStatsDepth, maxStatsIntvs)) $ repeat 0
+        esIParams = map round params
     }
     where params = inLimits parLims $ allParams sds
-
-initEvalStateV :: DParams -> EvalState
-initEvalStateV pv = EvalState {
-        esLearning = False,
-        esSamples = 0, esSteps = 0,
-        esAlpha = minStep,
-        esAngle = 0, esAmpl = 0, esFNorm = 0,
-        esDParams = params,
-        esDeviation = zeroParam,
-        esLastDev = zeroParam,
-        esIParams = map round params,
-        esStats = listArray ((1, 0), (maxStatsDepth, maxStatsIntvs)) $ repeat 0
-    }
-    where params = inLimits parLims pv
 
 inLimits :: Limits -> DParams -> DParams
 inLimits ls ps = map inlim $ zip ls ps
     where inlim ((mi, ma), p) = max mi $ min ma p
 
--- normalize :: DParams -> DParams
--- normalize (a:as) = 1 : map (/ a) as
--- normalize []     = []
+(<*>) :: Num a => [a] -> [a] -> a
+a <*> b = sum $ zipWith (*) a b
+{-# SPECIALIZE (<*>) :: [Int] -> [Int] -> Int #-}
 
 matesc :: Int
 matesc = 20000 - 255	-- attention, this is also defined in Base.hs!!
@@ -198,9 +175,7 @@ itemEval p c (EvIt a) = evalItem p c a
 normalEval :: MyPos -> Color -> EvalState -> (Int, [Int])
 normalEval p c sti = (sc, feat)
     where !feat = concatMap (itemEval p c) evalItems
-          !sc   = if esLearning sti
-                  then round $ map fromIntegral feat <*> esDParams sti
-                  else feat <*> esIParams sti
+          !sc   = feat <*> esIParams sti
 
 evalSideNoPawns :: MyPos -> Color -> EvalState -> (Int, [Int])
 evalSideNoPawns p c sti
@@ -224,7 +199,7 @@ evalNoPawns p c sti = (sc, zeroFeats)
               | kbnk        = mateKBNK p kaloneb	-- bishop + knight
               | kMxk        = mateKMajxK p kaloneb	-- simple mate with at least one major
               -- | kqkx        = mateQRest p kaloneb	-- queen against minor or rook
-              | otherwise   = fst $ normalEval p c sti	-- here: when we learn, not really ok
+              | otherwise   = fst $ normalEval p c sti
           kalonew = white p `less` kings p == 0
           kaloneb = black p `less` kings p == 0
           onlykings = kalonew && kaloneb
@@ -285,44 +260,6 @@ centerDistance sq = max (r - 4) (3 - r) + max (c - 4) (3 - c)
 bnMateDistance :: Bool -> Square -> Int
 bnMateDistance wbish sq = min (squareDistance sq ocor1) (squareDistance sq ocor2)
     where (ocor1, ocor2) = if wbish then (0, 63) else (7, 56)
-
--- Adjust the parameter after a series of learning evaluations
-adjEval :: State EvalState EvalState
-adjEval = do
-    sti <- get
-    let corr = map (* fact) $ esDeviation sti
-        -- fact = esAlpha sti / fromIntegral (esSamples sti)
-        -- 100 times less then the optimal step
-        fact = 1 / esFNorm sti / subOptimal	-- NLSM (normalized least mean squares)
-        ndp  = inLimits parLims ( esDParams sti <+> corr )
-        -- ndp  = esDParams sti <+> corr
-        ns   = esSteps sti + 1
-        (_, amt, ang) = nextGradStep (esAlpha sti) (esDeviation sti) (esLastDev sti)
-        stf = sti { esDParams = ndp, esIParams = map round ndp,
-                    esSamples = 0, esDeviation = zeroParam, esSteps = ns,
-                    -- esAlpha = alpha,
-                    esAlpha = fact, esFNorm = 0,
-                    esAmpl = amt, esAngle = ang, esLastDev = esDeviation sti }
-    -- if esSamples sti == 0 then return sti else return stf
-    if esSamples sti < samplesPerChange then return sti else return stf
-
--- Add a new sample
-cntEval :: Int -> Int -> Int -> IParams -> State EvalState EvalState
-cntEval depth steval dyeval feats = do
-    sti <- get
-    -- let err = dyeval - steval
-    let err = depth * (dyeval - steval)	-- weight deeper results more
-        enxn = map (fromIntegral . (err *)) feats
-        ndev  = esDeviation sti <+> enxn
-        xhnxn = feats <*> feats	-- NLSM
-        -- dintv = min maxStatsIntvs $ abs err `div` statsIntv
-        -- ddept = min maxStatsDepth depth
-        -- nstat = accum (+) (esStats sti) [((ddept, dintv), 1)]
-        nstp  = esSamples sti + 1
-        -- stf0 = sti { esStats = nstat }
-        -- stf1 = sti { esSamples = nstp, esDeviation = ndev, esStats = nstat }
-        stf1 = sti { esSamples = nstp, esDeviation = ndev, esFNorm = fromIntegral xhnxn }
-    return stf1
 
 -- Some helper functions:
 

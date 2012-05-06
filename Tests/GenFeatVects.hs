@@ -32,7 +32,7 @@ data Once = Once Cache History EvalState
 main = do
     ha  <- newCache defaultConfig
     hi  <- newHist
-    let evs = initEvalState False []
+    let evs = initEvalState []
     fn <- getArgs >>= return . head
     ih <- openFile fn ReadMode
     oh <- openFile "theVectors.txt" WriteMode

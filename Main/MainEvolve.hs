@@ -115,7 +115,7 @@ initOldState dir = do
     readFile statusFile >>= \s -> return (read s)
 
 initDist = (parDim, (def, vars0))
-    where ies = initEvalState False []
+    where ies = initEvalState []
           def = esDParams ies
           vars0 = map f parLims
           f (mi, ma) = max (abs mi) (abs ma)

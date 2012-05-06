@@ -65,8 +65,7 @@ bestMoveCont tiefe stati lastsc lpv rmvs = do
                 lastpv = lpv,
                 lastscore = lastsc,
                 rootmvs   = rmvs,
-                window    = aspirWindow,
-                learnev   = False
+                window    = aspirWindow
                 }
     ((sc, path, rmvsf), statf) <- runSearch (alphaBeta abc) stati
     when (sc == 0) $ return ()
@@ -96,8 +95,6 @@ giveBestMove mvs nodes = return ()
     where bm = sead . words . show . head $ mvs
           sead = head . tail
 
-isLearn = False
-
 -- Opens a parameter file for eval, read it and create an eval state
 makeEvalState argfile =
     case argfile of
@@ -105,8 +102,8 @@ makeEvalState argfile =
             fex <- doesFileExist afn
             if fex then filState afn else defState
         Nothing -> defState
-    where defState = return $ initEvalState isLearn []
-          filState fn = fmap (initEvalState isLearn) (fileToParams `fmap` readFile fn)
+    where defState = return $ initEvalState []
+          filState fn = fmap initEvalState (fileToParams `fmap` readFile fn)
 
 fileToParams = map readParam . nocomments . lines
     where nocomments = filter (not . iscomment)

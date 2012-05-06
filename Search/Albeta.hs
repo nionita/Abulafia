@@ -19,8 +19,6 @@ import Data.Maybe (fromMaybe)
 import Search.SearchMonad
 import Search.AlbetaTypes
 import Struct.Struct
--- import Struct.Status hiding (stats)
--- import Moves.BaseTypes
 import Moves.Base
 
 -- debug :: Bool
@@ -157,7 +155,6 @@ data Killer = NoKiller | OneKiller Move Int | TwoKillers Move Int Move Int
 -- Read only parameters of the search, so that we can change them programatically
 data PVReadOnly
     = PVReadOnly {
-          school :: !Bool,	-- running in learning mode
           albest :: !Bool,	-- always choose the best move (i.e. first)
           timeli :: !Bool,	-- do we have time limit?
           abmili :: !Int	-- abort when after this milisecond
@@ -284,7 +281,7 @@ stt0 :: SStats
 stt0 = SStats { sNodes = 0, sNodesQS = 0, sRetr = 0, sRSuc = 0 }
 
 pvro00 :: PVReadOnly
-pvro00 = PVReadOnly { school = False, albest = False, timeli = False, abmili = 0 }
+pvro00 = PVReadOnly { albest = False, timeli = False, abmili = 0 }
 
 alphaBeta :: Node m => ABControl -> m (Int, [Move], [Move])
 alphaBeta abc = {-# SCC "alphaBeta" #-} do
@@ -295,9 +292,7 @@ alphaBeta abc = {-# SCC "alphaBeta" #-} do
         -- searchLow       b = pvRootSearch alpha0 b     d lpv rmvs True
         -- searchHigh    a   = pvRootSearch a      beta0 d lpv rmvs True
         searchFull        = pvRootSearch alpha0 beta0 d lpv rmvs False	-- ???
-        pvro = PVReadOnly { school = learnev abc, albest = best abc,
-                            timeli = stoptime abc /= 0, abmili = stoptime abc }
-        -- pvs0 = if learnev abc then pvsInit { ronly = pvro1 } else pvsInit
+        pvro = PVReadOnly { albest = best abc, timeli = stoptime abc /= 0, abmili = stoptime abc }
         pvs0 = pvsInit { ronly = pvro } :: PVState
     r <- if useAspirWin
          then case lastscore abc of
@@ -340,9 +335,6 @@ aspirWin a b d lpv rmvs t = do
 -- Root PV Search
 pvRootSearch :: Node m => Int -> Int -> Int -> Seq Move -> Alt Move -> Bool
              -> Search m (Int, Seq Move, Alt Move)
-pvRootSearch a b d _ _ _ | d <= 0 = do	-- this part is only for eval learning
-    v <- pvQSearch a b 0		-- in normal play always d >= 1
-    return (v, emptySeq, Alt [])
 pvRootSearch a b d lastpath rmvs aspir = do
     viztreeNew d
     modify $ \s -> s { draft = d }
@@ -528,14 +520,10 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
         -- xpvslb = insertToPvs d pvb (pvsl nst)	-- the bad
         de = pathDepth s
     -- logmes $ "*** to pvsl: " ++ show xpvsl
-    -- inschool <- gets $ school . ronly
     if d == 1	-- for depth 1 search we search all exact
        then {-# SCC "allExactRoot" #-} do
             let typ = 2
             when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
-            -- when inschool $ do
-            --     s0 <- pvQSearch a b 0
-            --     lift $ learn d typ s s0
             let nst1 = if s > a
                           then nst { cursc = s, ownnt = nextNodeType (ownnt nst), forpv = False }
                           else nst
@@ -567,9 +555,6 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
                    -- what when a root move fails high? We are in aspiration
                    let typ = 1	-- best move is e and is beta cut (score is lower limit)
                    when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
-                   -- when inschool $ do
-                   --     s0 <- pvQSearch a b 0
-                   --     lift $ learn d typ b s0
                    lift $ betaMove True d (absdp sst) e
                    xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
                    !csc <- checkPath nst d "cpl 3" $ if s > b then combinePath s b else s
@@ -587,9 +572,6 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
                    informBest (scoreToExtern sc le) (draft sst) pa
                    let typ = 2	-- best move so far (score is exact)
                    when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ sc e nodes'
-                   -- when inschool $ do
-                   --     s0 <- pvQSearch a b 0
-                   --     lift $ learn d typ s s0
                    xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
                    let nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
                                     forpv = False, movno = mn + 1,
@@ -677,10 +659,6 @@ pvSearch nst !a !b !d lastpath lastnull = do
               if abrt' || s > a
                  then checkPath nst d "cpl 6b" s
                  else do
-                     -- inschool <- gets $ school . ronly
-                     -- when inschool $ do
-                     --     s0 <- pvQSearch a b 0
-                     --     lift $ learn d typ s s0
                      let de = pathDepth s
                      when (de >= minToStore) $ do
                          nodes1 <- gets (sNodes . stats)
@@ -703,15 +681,14 @@ nullEdgeFailsHigh nst b d lastnull
                lift nullEdge	-- do null move
                nn <- newNode
                viztreeDown0 nn
-               inschool <- gets $ school . ronly
-               let !nmb = if nulSubAct && not inschool then b - nulSubPath else b
-                   !lastnull1 = lastnull - 1
                viztreeABD (pathScore $ -nmb) (pathScore $ -nmb + nulMarPath) d1
                val <- liftM negate $ pvSearch nst (-nmb) (-nmb + nulMarPath) d1 emptySeq lastnull1
                lift undoEdge	-- undo null move
                viztreeUp0 nn (pathScore val)
                return $! val >= nmb
     where !d1  = d - 1 - nulRedux
+          !nmb = if nulSubAct then b - nulSubPath else b
+          !lastnull1 = lastnull - 1
 
 -- This is the inner loop of the PV search, executed at every level (except root) once per possible move
 -- See the parameter
@@ -771,7 +748,7 @@ pvInnerLoopExten b d spec exd nst = do
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
               ++ " forpv " ++ show (forpv nst)
     (hdeep, tp, hscore, e', nodes')
-        <- if (useTTinPv || not (forpv nst)) && d >= minToRetr	-- Fixme! This is not PV!!!
+        <- if (useTTinPv || not inPv) && d >= minToRetr
               then {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
               else return (-1, 0, 0, undefined, 0)
     let ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'],
@@ -790,9 +767,8 @@ pvInnerLoopExten b d spec exd nst = do
              else do
                  when inPv $ lift $ informStr "Pruning in PV!"
                  -- futility pruning
-                 inschool <- gets $ school . ronly
-                 (!prune, !v) <- if futilActive && not (tact || spec || inschool)
-                                  -- don't prune when tactical or in learning
+                 (!prune, !v) <- if futilActive && not (tact || spec)
+                                  -- don't prune when tactical
                                   then isPruneFutil (d-1) (-b) (-a)	-- cause we moved already
                                   else return (False, 0)
                  if prune
@@ -849,7 +825,6 @@ checkFailOrPVLoop xstats b d e s nst = do
         !nodes1 = sNodes $ stats sst
         !nodes' = nodes1 - nodes0
         de = pathDepth s
-    -- inschool <- gets $ school . ronly
     if s <= a
        then do
             -- when in a cut node and the move dissapointed - negative history
@@ -873,9 +848,6 @@ checkFailOrPVLoop xstats b d e s nst = do
             let typ = 1	-- best move is e and is beta cut (score is lower limit)
             when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
             lift $ betaMove True d (absdp sst) e -- anounce a beta move (for example, update history)
-            -- when inschool $ do
-            --     s0 <- pvQSearch a b 0
-            --     lift $ learn d typ b s0
             -- when debug $ logmes $ "<-- pvInner: beta cut: " ++ show s ++ ", return " ++ show b
             !csc <- checkPath nst d "cpl 10" $ if s > b then combinePath s b else s
             pindent $ "beta cut: " ++ show csc
@@ -886,9 +858,6 @@ checkFailOrPVLoop xstats b d e s nst = do
               let typ = 2	-- score is exact
               when (ownnt nst == PVNode || de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
               -- when debug $ logmes $ "<-- pvInner - new a: " ++ show s
-              -- when inschool $ do
-              --     s0 <- pvQSearch a b 0
-              --     lift $ learn d typ s s0
               let !mn1 = mn + 1
                   nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
                                forpv = False, movno = mn1, pvcont = emptySeq }

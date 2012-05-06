@@ -25,10 +25,10 @@ data MyState = MyState {
     }
 
 data EvalState = EvalState {
-        esLearning :: !Bool,
-        esSamples, esSteps :: !Int,
-        esAlpha, esAngle, esAmpl, esFNorm :: !Double,
-        esDParams, esDeviation, esLastDev :: [Double],
-        esIParams :: [Int],
-        esStats :: UArray (Int, Int) Int
+        -- esSamples, esSteps :: !Int,
+        -- esAlpha, esAngle, esAmpl, esFNorm :: !Double,
+        -- esDParams, esDeviation, esLastDev :: [Double],
+        esDParams :: [Double],
+        esIParams :: [Int]
+        -- esStats :: UArray (Int, Int) Int
     }

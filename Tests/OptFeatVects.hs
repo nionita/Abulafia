@@ -69,7 +69,7 @@ poserr3 v vs = poserr1 v vs + 1 / (poserr2 v vs + 1)
 u <*> v = V.sum $ V.zipWith (*) u v
 
 initPars = (def, (parDim, (def, vars0)))
-    where ies = initEvalState False []
+    where ies = initEvalState []
           def = esDParams ies
           vars0 = map f parLims
           f (mi, ma) = max (abs mi) (abs ma)
