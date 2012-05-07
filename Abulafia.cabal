@@ -96,8 +96,9 @@ Executable Abulafia
     -- GHC-Options: -auto-all
     -- GHC-Options: -auto-all -with-rtsopts="-p -hc -smemop.txt"
   else
-    C-sources: Cbits/rts_hooks.c
-    -- GHC-Options: -with-rtsopts="-N2 -smemuse.txt -M2048m -H1024m"
+    -- C-sources: Cbits/rts_hooks.c
+    -- GHC-Options: -with-rtsopts=-N2 -M256m -H128m
+    GHC-Options: -with-rtsopts=-N2
 
 -- Executable LearnSTS
 --   Main-is:             Tests/LearnSTS.hs

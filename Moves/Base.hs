@@ -15,18 +15,12 @@ module Moves.Base (
 ) where
 
 import Data.Array.IArray
--- import Data.Array.Unboxed
 import Debug.Trace
 import Control.Exception (assert)
--- import Data.Word
 import Data.Bits
 import Data.List
--- import Data.Char
--- import Data.Maybe
 import Control.Monad.State.Lazy
--- import Control.Monad.Reader
 import Data.Ord (comparing)
--- import Data.Array.IO
 import System.Random
 
 import Moves.BaseTypes
@@ -36,7 +30,6 @@ import Struct.Struct
 import Hash.TransTab
 import Struct.Status
 import Moves.Board
--- import Moves.BitBoard
 import Moves.SEE
 import Eval.Eval
 import Moves.ShowMe
@@ -81,7 +74,7 @@ instance CtxMon m => Node (Game r m) where
 -- Some options and parameters:
 debug, useHash :: Bool
 debug       = False
-useHash     = True
+useHash     = False
 
 depthForMovesSortPv, depthForMovesSort, scoreDiffEqual :: Int
 depthForMovesSortPv = 1	-- use history for sorting moves when pv or cut nodes
@@ -328,6 +321,9 @@ materVal0 = do
 -- quiet :: MyPos -> Bool
 -- quiet p = at .&. ta == 0
 --     where (!at, !ta) = if moving p == White then (whAttacs p, black p) else (blAttacs p, white p)
+
+-- Fixme!! We have big problems with hash store/retrieval: many wrong scores (and perhaps hash moves)
+-- come from there!!
 
 {-# INLINE currDSP #-}
 currDSP :: CtxMon m => Game r m (Int, Int, Int, Move, Int)

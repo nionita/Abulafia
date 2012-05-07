@@ -93,8 +93,8 @@ maxFutilDepth :: Int
 maxFutilDepth = 3
 futilMargins :: UArray Int Int
 -- futilMargins = array (1, 3) [ (1, 450), (2, 800), (3, 1500) ]	-- F0
--- futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
-futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
+futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
+-- futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
 -- futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
 
 -- Parameters for quiescent search:
@@ -377,7 +377,7 @@ pvRootSearch a b d lastpath rmvs aspir = do
                  --     s <- get
                  --     lift $ informStr $ "Shorter path depth " ++ show d
                  --                        ++ " cursc: " ++ show (cursc nstf)
-                 let best' = head p
+                 let (best':_) = p
                      allrmvs = if s' >= b then unalt edges else map pvslToMove (pvsl nstf)
                      xrmvs = Alt $ best' : delete best' allrmvs	-- best on top
                  return (s, Seq p, xrmvs)
@@ -540,8 +540,8 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
                       let es = unseq $ pathMoves s
                       kill1 <- if d >= 2 && moreThanOne es
                                   then do
-                                      let mm = head es
-                                          km = head $ drop 1 es
+                                      let (mm:mms) = es
+                                          (km:_)   = mms
                                           s1 = - pathScore s
                                       iskm <- lift $ killCandEdge mm km
                                       if iskm then return $! pushKiller km s1 (killer nst)
@@ -660,13 +660,15 @@ pvSearch nst !a !b !d lastpath lastnull = do
                  then checkPath nst d "cpl 6b" s
                  else do
                      let de = pathDepth s
-                     when (de >= minToStore) $ do
+                         es = unalt edges
+                     when (de >= minToStore && not (null es)) $ do
                          nodes1 <- gets (sNodes . stats)
                          let typ = 0
                              !deltan = nodes1 - nodes0
                          -- store as upper score - move does not matter - tricky here!
+                         -- as this is a dummy move stored
                          lift $ {-# SCC "hashStore" #-}
-                                store de typ (pathScore s) (head $ unalt edges) deltan
+                                store de typ (pathScore s) (head es) deltan
                      checkPath nst d "cpl 6a" $! onlyScore s	-- why??
                      -- return $! combinePath s a
 
@@ -769,7 +771,8 @@ pvInnerLoopExten b d spec exd nst = do
                  -- futility pruning
                  (!prune, !v) <- if futilActive && not (tact || spec)
                                   -- don't prune when tactical
-                                  then isPruneFutil (d-1) (-b) (-a)	-- cause we moved already
+                                  -- then isPruneFutil (d-1) (-b) (-a)	-- cause we moved already
+                                  then isPruneFutil d a b	-- cause we moved already
                                   else return (False, 0)
                  if prune
                     then return v	-- we will fail low or high
@@ -834,8 +837,8 @@ checkFailOrPVLoop xstats b d e s nst = do
                 es = unseq $ pathMoves s
             kill1 <- if d >= 2 && moreThanOne es
                         then do
-                            let mm = head es
-                                km = head $ drop 1 es
+                            let (mm:mms) = es
+                                (km:_)   = mms
                                 s1 = - pathScore s
                             iskm <- lift $ killCandEdge mm km
                             if iskm then return $! pushKiller km s1 (killer nst)
@@ -902,9 +905,9 @@ isPruneFutil d a b
         let !margin = futilMargins ! d
             a' = pathScore a
             b' = pathScore b
-        -- v <- lift staticVal	-- E1
+        v <- lift staticVal	-- E1
         -- v <- lift materVal	-- can we do here direct static evaluation?
-        v <- pvQSearch a' b' 0	-- E2
+        -- v <- pvQSearch a' b' 0	-- E2
         if v < a' && v + margin <= a'
            then return (True, onlyScore a)
            else if v > b' && v - margin >= b'
@@ -1119,7 +1122,7 @@ bestFirst path kl (es1, es2)
     | null path = es1 ++ kl ++ delall es2 kl
     | otherwise = e : delete e es1 ++ kl ++ delall es2 (e : kl)
     where delall = foldr delete
-          e = head path
+          (e:_)  = path
 
 pushKiller :: Move -> Int -> Killer -> Killer
 pushKiller !e s NoKiller = OneKiller e s
