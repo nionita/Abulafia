@@ -652,7 +652,11 @@ pvSearch nst !a !b !d lastpath lastnull = do
               -- Loop thru the moves
               let !pvpath = if nullSeq lastpath then emptySeq else Seq $ tail $ unseq lastpath
                   !nsti = nst0 { ownnt = deepNodeType (ownnt nst), cursc = a, pvcont = pvpath }
-              nstf <- pvLoop (pvInnerLoop b d) nsti edges
+              -- futility pruning?
+              prune <- if not futilActive || ownnt nst == PVNode
+                          then return False
+                          else isPruneFutil d a
+              nstf <- pvLoop (pvInnerLoop b d prune) nsti edges
               let s = cursc nstf
               pindent $ "<= " ++ show s
               abrt' <- gets abort
@@ -698,10 +702,11 @@ nullEdgeFailsHigh nst b d lastnull
 pvInnerLoop :: Node m
             => Path 	-- current beta
             -> Int	-- current search depth
+            -> Bool	-- prune?
             -> NodeState 	-- node status
             -> Move	-- move to search
             -> Search m (Bool, NodeState)
-pvInnerLoop b d nst e = do
+pvInnerLoop b d prune nst e = do
     abrt <- timeToAbort
     if abrt
        then return (True, nst)
@@ -713,8 +718,12 @@ pvInnerLoop b d nst e = do
          viztreeDown nn e
          modify $ \s -> s { absdp = absdp s + 1 }
          s <- case exd of
-                  Exten exd' -> pvInnerLoopExten b d (special e) exd' nst
-                  Final sco  -> return $! pathFromScore "Final" (-sco)
+                Exten exd' -> do
+                    let speci = special e
+                    if prune && not speci
+                       then return $! onlyScore $! cursc nst	-- prune, return a
+                       else pvInnerLoopExten b d speci exd' nst
+                Final sco  -> return $! pathFromScore "Final" (-sco)
          lift $ undoEdge	-- undo the move
          viztreeUp nn e (pathScore s)
          modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
@@ -767,50 +776,40 @@ pvInnerLoopExten b d spec exd nst = do
                 pvpath <- if nullSeq pvpath_ then bestMoveFromHash else return pvpath_
                 pvSearch nst (-b) (-a) d' pvpath nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 14"
              else do
-                 when inPv $ lift $ informStr "Pruning in PV!"
-                 -- futility pruning
-                 (!prune, !v) <- if futilActive && not (tact || spec)
-                                  -- don't prune when tactical
-                                  -- then isPruneFutil (d-1) (-b) (-a)	-- cause we moved already
-                                  then isPruneFutil d a b	-- cause we moved already
-                                  else return (False, 0)
-                 if prune
-                    then return v	-- we will fail low or high
-                    else do
-                       viztreeABD (pathScore $ -a-pathGrain) (pathScore $ -a) d'
-                       -- let pvpath = if null lastpath
-                       --           then if hdeep > 0 && tp > 0 then [e'] else []
-                       --           else lastpath
-                       -- let pvpath' = if hdeep > 0 && tp > 0 then Seq [e'] else pvpath_
-                       let pvpath' = if nullSeq pvpath_ && hdeep > 0 && tp > 0 then Seq [e'] else pvpath_
-                       --1-- let !pvpath = if hdeep > 0 && tp > 0 then Seq [] else (pvcont nst)
-                       pvpath <- if useIID && nullSeq pvpath'
-                                    -- then bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
-                                    then bestMoveFromIID nst (-b) (-a) d' nulMoves
-                                    else return pvpath'
-                       !s1 <- pvSearch nst (-a-pathGrain) (-a) d' pvpath nulMoves
-                              >>= return . pnextlev >>= checkPath nst d "cpl 9"
-                       abrt <- gets abort
-                       if abrt || s1 <= a
-                          then return s1	-- failed low (as expected) or aborted
-                          else do
-                            -- we didn't fail low and need re-search
-                            pindent $ "Research! (" ++ show s1 ++ ")"
-                            viztreeReSe
-                            -- Try: no null move in re-search
-                            -- let nst' = nst { ownnt = PVNode }	-- always?
-                            let nst' = nst { forpv = True }
-                            if reduced && (d >= lmrMinDFRes || d >= 1 && inPv)
-                            -- if reduced && d > 1
-                               then do	-- re-search with no reduce (expensive!)
-                                  let !d'' = fst $ nextDepth (d+exd') mn False inPv
-                                  viztreeABD (pathScore $ -b) (pathScore $ -a) d''
-                                  pvSearch nst' (-b) (-a) d'' pvpath 0
-                                    >>= return . pnextlev >>= checkPath nst d'' "cpl 15"
-                               else do
-                                  viztreeABD (pathScore $ -b) (pathScore $ -a) d'
-                                  pvSearch nst' (-b) (-a) d' pvpath 0
-                                    >>= return . pnextlev >>= checkPath nst d' "cpl 16"
+                viztreeABD (pathScore $ -a-pathGrain) (pathScore $ -a) d'
+                -- let pvpath = if null lastpath
+                --           then if hdeep > 0 && tp > 0 then [e'] else []
+                --           else lastpath
+                -- let pvpath' = if hdeep > 0 && tp > 0 then Seq [e'] else pvpath_
+                let pvpath' = if nullSeq pvpath_ && hdeep > 0 && tp > 0 then Seq [e'] else pvpath_
+                --1-- let !pvpath = if hdeep > 0 && tp > 0 then Seq [] else (pvcont nst)
+                pvpath <- if useIID && nullSeq pvpath'
+                             -- then bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
+                             then bestMoveFromIID nst (-b) (-a) d' nulMoves
+                             else return pvpath'
+                !s1 <- pvSearch nst (-a-pathGrain) (-a) d' pvpath nulMoves
+                       >>= return . pnextlev >>= checkPath nst d "cpl 9"
+                abrt <- gets abort
+                if abrt || s1 <= a
+                   then return s1	-- failed low (as expected) or aborted
+                   else do
+                     -- we didn't fail low and need re-search
+                     pindent $ "Research! (" ++ show s1 ++ ")"
+                     viztreeReSe
+                     -- Try: no null move in re-search
+                     -- let nst' = nst { ownnt = PVNode }	-- always?
+                     let nst' = nst { forpv = True }
+                     if reduced && (d >= lmrMinDFRes || d >= 1 && inPv)
+                     -- if reduced && d > 1
+                        then do	-- re-search with no reduce (expensive!)
+                           let !d'' = fst $ nextDepth (d+exd') mn False inPv
+                           viztreeABD (pathScore $ -b) (pathScore $ -a) d''
+                           pvSearch nst' (-b) (-a) d'' pvpath 0
+                             >>= return . pnextlev >>= checkPath nst d'' "cpl 15"
+                        else do
+                           viztreeABD (pathScore $ -b) (pathScore $ -a) d'
+                           pvSearch nst' (-b) (-a) d' pvpath 0
+                             >>= return . pnextlev >>= checkPath nst d' "cpl 16"
 
 pnearmate :: Path -> Bool
 pnearmate = nearmate . pathScore
@@ -898,21 +897,20 @@ pvLoop f s (Alt (e:es)) = do
     if cut then return s'
            else pvLoop f s' $ Alt es
 
-isPruneFutil :: Node m => Int -> Path -> Path -> Search m (Bool, Path)
-isPruneFutil d a b
-    | d <= 0 || d > maxFutilDepth = return (False, 0)
+isPruneFutil :: Node m => Int -> Path -> Search m Bool
+isPruneFutil d a
+    | d <= 0 || d > maxFutilDepth || nearmate (pathScore a) = return False
     | otherwise = do
-        let !margin = futilMargins ! d
-            a' = pathScore a
-            b' = pathScore b
-        v <- lift staticVal	-- E1
-        -- v <- lift materVal	-- can we do here direct static evaluation?
-        -- v <- pvQSearch a' b' 0	-- E2
-        if v < a' && v + margin <= a'
-           then return (True, onlyScore a)
-           else if v > b' && v - margin >= b'
-                then return (True, onlyScore b)
-                else return (False, 0)
+        tact <- lift tactical
+        if tact then return False else do
+            let !margin = futilMargins ! d
+                a' = pathScore a
+            v <- lift staticVal	-- E1
+            -- v <- lift materVal	-- can we do here direct static evaluation?
+            -- v <- pvQSearch a' b' 0	-- E2
+            if v < a' && v + margin <= a'
+               then return True
+               else return False
 
 {-# INLINE checkPath #-}
 -- checkPath _ _ _ s = return s
