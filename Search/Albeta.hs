@@ -93,9 +93,9 @@ maxFutilDepth :: Int
 maxFutilDepth = 3
 futilMargins :: UArray Int Int
 -- futilMargins = array (1, 3) [ (1, 450), (2, 800), (3, 1500) ]	-- F0
-futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
+-- futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
 -- futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
--- futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
+futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
 
 -- Parameters for quiescent search:
 qsBetaCut, qsDeltaCut :: Bool
@@ -720,7 +720,7 @@ pvInnerLoop b d prune nst e = do
          s <- case exd of
                 Exten exd' -> do
                     let speci = special e
-                    if prune && not speci
+                    if prune && not speci && exd' == 0	-- don't prune special or extended
                        then return $! onlyScore $! cursc nst	-- prune, return a
                        else pvInnerLoopExten b d speci exd' nst
                 Final sco  -> return $! pathFromScore "Final" (-sco)
