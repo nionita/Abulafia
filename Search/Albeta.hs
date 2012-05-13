@@ -68,25 +68,26 @@ lmrMinDRed  = 2		-- minimum reduced depth
 lmrMaxDepth = 15
 lmrMaxWidth = 63
 lmrPvLog, lmrReLog :: Double
-lmrPvLog  = 0.125
-lmrReLog  = 0.200
+lmrPvLog  = 0.6
+lmrReLog  = 0.8
 lmrPvLin, lmrReLin :: Double
 lmrPvLin  = 0.070
 lmrReLin  = 0.105
--- LMR parameter optimisation (lmrPv, lmrRest):
--- lm1 = 2, 1	-> elo -127 +- 58
--- lm2 = 3, 2	-> elo  -14 +- 52
--- lm3 = 5, 3	-> elo   17 +- 55
--- lm4 = 8, 5	-> elo   32 +- 53
--- lm5 = 13, 8	-> elo   92 +- 54 --> this is it
+-- LMR log parameter optimisation (lmrPvLog, lmrReLog):
+-- lmlog1 = 0.3, 0.8
+-- lmlog2 = 0.4, 0.8
+-- lmlog3 = 0.5, 0.8
+-- lmlog4 = 0.6, 0.8
 lmrReducePv, lmrReduceArr :: UArray (Int, Int) Int
 lmrReducePv  = array ((1, 1), (lmrMaxDepth, lmrMaxWidth))
     [((i, j), lmrpv i j) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
 lmrReduceArr = array ((1, 1), (lmrMaxDepth, lmrMaxWidth))
     [((i, j), lmrre i j) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
 
-lmrpv = lateRedLin lmrPvLin
-lmrre = lateRedLin lmrReLin
+-- lmrpv = lateRedLin lmrPvLin
+-- lmrre = lateRedLin lmrReLin
+lmrpv = lateRedLog lmrPvLog
+lmrre = lateRedLog lmrReLog
 
 -- Different forms for reduction scheme
 -- The value includes also the regular depth reduction (-1) which has to be done anyway
