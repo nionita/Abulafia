@@ -305,7 +305,8 @@ startSearchThread tim tpm mtg dpt = do
             case logger ctx of
                 Just _  -> ctxLog "Error" mes
                 Nothing -> do
-                    let efname = "Abulafia_" ++ show (strttm ctx) ++ "_err.txt"
+                    -- let efname = "Abulafia_" ++ show (strttm ctx) ++ "_err.txt"
+                    let efname = "Abulafia_err.txt"
                         efcont = unlines [idName, mes]
                     liftIO $ writeFile efname efcont
             answer $ infos mes
@@ -427,7 +428,7 @@ answer s = do
 -- Version and suffix:
 progVersion, progVerSuff, progLogName :: String
 progVersion = "0.61"
-progVerSuff = "futf3"
+progVerSuff = "lmadd"
 
 progLogName = "abulafia" ++ "-" ++ progVersion
                  ++ if null progVerSuff then ""
