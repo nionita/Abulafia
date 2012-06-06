@@ -1,7 +1,8 @@
 {-# LANGUAGE TypeSynonymInstances,
              MultiParamTypeClasses,
              BangPatterns,
-             RankNTypes, UndecidableInstances
+             RankNTypes, UndecidableInstances,
+             FlexibleInstances
              #-}
 
 module Moves.Base (
