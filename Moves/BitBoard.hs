@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 module Moves.BitBoard (
-    popCount, popCount1, lsb, bbToSquares, less, firstOne, exactOne, bbToSquaresBB
+    popCount0, popCount1, lsb, bbToSquares, less, firstOne, exactOne, bbToSquaresBB
 ) where
 
 -- import Control.Exception (assert)

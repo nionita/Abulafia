@@ -68,16 +68,24 @@ lmrMinDRed  = 2		-- minimum reduced depth
 lmrMaxDepth = 15
 lmrMaxWidth = 63
 lmrPvLog, lmrReLog :: Double
-lmrPvLog  = 0.6
+lmrPvLog  = 0.3
 lmrReLog  = 0.8
-lmrPvLin, lmrReLin :: Double
-lmrPvLin  = 0.070
-lmrReLin  = 0.105
 -- LMR log parameter optimisation (lmrPvLog, lmrReLog):
--- lmlog1 = 0.3, 0.8
--- lmlog2 = 0.4, 0.8
--- lmlog3 = 0.5, 0.8
--- lmlog4 = 0.6, 0.8
+-- lmlog1 = 0.3, 0.8	-18 +/-60	-- looks best (but only 100 games)
+-- lmlog2 = 0.4, 0.8	-23 +/-57
+-- lmlog3 = 0.5, 0.8	-35 +/-59
+-- lmlog4 = 0.6, 0.8	-53 +/-58
+lmrPvLin, lmrReLin :: Double
+lmrPvLin  = 0.040
+lmrReLin  = 0.110
+-- LMR lin parameter optimisation (lmrPvLin, lmrReLin):
+-- lmadd  = 0.070, 0.105
+-- lmadd1 = 0.020, 0.110	-21 +/-57
+-- lmadd2 = 0.030, 0.110	-39 +/-57
+-- lmadd3 = 0.040, 0.110	 19 +/-58
+-- lmadd4 = 0.050, 0.110	 13 +/-59
+-- lmadd5 = 0.090, 0.110
+-- lmadd6 = 0.100, 0.110
 lmrReducePv, lmrReduceArr :: UArray (Int, Int) Int
 lmrReducePv  = array ((1, 1), (lmrMaxDepth, lmrMaxWidth))
     [((i, j), lmrpv i j) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
@@ -124,7 +132,7 @@ nulSubAct   = True
 
 -- Parameters for internal iterative deepening
 useIID :: Bool
-useIID      = False
+useIID      = True
 
 minIIDPV, minIIDCut, maxIIDDepth :: Int
 minIIDPV    = 5
@@ -467,14 +475,15 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
     -- 2: one move from hash
     -- 3: a continuation from a new IID
     -- 1 and 2 can be empty; then we will try 3 only in PV or Cut nodes, and only for higher d
-    -- But one can be empty only in non PV nodes, or when d=0, and this is too low,
-    -- so we dont bother to call check the other conditions for PV
+    -- But 1 can be empty only in non PV nodes, or when d=1, and this is too low,
+    -- so we don't bother to check the other conditions for PV
     pvpath' <- if nullSeq pvpath_ then {-# SCC "firstFromHashRoot" #-} bestMoveFromHash
                                   else {-# SCC "firstFromContRoot" #-} return pvpath_
     -- when (nullSeq pvpath' && forpv nst) $ lift
     --                     $ logmes $ "pvpath is null: d=" ++ show d ++ ", ownnt =" ++ show (ownnt nst)
     if pvs	-- search of principal variation
        then {-# SCC "forpvSearchRoot" #-} do
+           -- here we should have pvpath' /= [] or d == 1
            viztreeABD (pathScore $ -b) (pathScore $ -a) d'
            pvSearch nst (-b) (-a) d' pvpath' nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 11"
        else {-# SCC "nullWindowRoot" #-} do
@@ -1043,7 +1052,8 @@ bestMoveFromIID :: Node m => NodeState -> Path -> Path -> Int -> Int -> Search m
 bestMoveFromIID nst a b d lastnull
     | nt == PVNode  && d >= minIIDPV ||
       nt == CutNode && d >= minIIDCut
-                = {-# SCC "iidExecutedYes" #-} pathMoves `liftM` pvSearch nst a b d' emptySeq lastnull
+                -- = {-# SCC "iidExecutedYes" #-} pathMoves `liftM` pvSearch nst a b d' emptySeq lastnull
+                = {-# SCC "iidExecutedYes" #-} pathMoves `liftM` pvSearch nst a b d' emptySeq nulMoves
     | otherwise = {-# SCC "iidExecutedNo"  #-} return emptySeq
     where d' = min maxIIDDepth (iidNewDepth d)
           nt = ownnt nst
