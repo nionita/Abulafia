@@ -189,7 +189,8 @@ hasMoves p c = (check && (not . null $ genMoveFCheck p c)) || (not check && anyM
 
 -- Move generation generates legal moves
 genMoveCapt :: MyPos -> Color -> [(Square, Square)]
-genMoveCapt p c = sortByMVVLVA p all
+genMoveCapt p c = all
+-- genMoveCapt p c = sortByMVVLVA p all
 -- genMoveCapt p c = sortByMatDiff p all
     where !pGenC = concatMap (srcDests (pcapt . pAttacs c))
                      $ bbToSquares $ pawns p .&. myfpc `less` traR

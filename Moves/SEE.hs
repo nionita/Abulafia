@@ -4,8 +4,9 @@ module Moves.SEE
     findLKA,
     myPieces, yoPieces, thePieces,
     genMoveCaptSEE,
-    genMoveCaptWL
-    -- valueSEE, figAttacking, allAttackingPawns
+    genMoveCaptWL,
+    valueSEE
+    -- figAttacking, allAttackingPawns
     )
     where
 

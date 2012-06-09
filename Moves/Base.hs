@@ -35,6 +35,7 @@ import Moves.SEE
 import Eval.Eval
 import Moves.ShowMe
 import Moves.History
+import Moves.MoveList
 
 {-# INLINE nextlev #-}
 nextlev :: Int -> Int
@@ -122,6 +123,18 @@ loosingLast = False
 genMoves :: CtxMon m => Int -> Int -> Bool -> Game r m ([Move], [Move])
 genMoves depth absdp pv = do
     p <- getPos
+    let !c = moving p
+        lc = map (genmv True p) $ genMoveFCheck p c
+    if isCheck p c
+       then return (lc, [])
+       else do
+           let mvs = genAMoves p c Nothing []
+               l1 = map (genmvT p) $ genMoveTransf p c
+           return (l1 ++ mvs, [])
+
+genMoves' :: CtxMon m => Int -> Int -> Bool -> Game r m ([Move], [Move])
+genMoves' depth absdp pv = do
+    p <- getPos
     -- when debugGen $ do
     --     lift $ ctxLog "Debug" $ "--> genMoves:\n" ++ showTab (black p) (slide p) (kkrq p) (diag p)
     let !c = moving p
@@ -153,6 +166,25 @@ onlyWinningCapts = True
 -- Generate only tactical moves, i.e. promotions, captures & check escapes
 genTactMoves :: CtxMon m => Game r m [Move]
 genTactMoves = do
+    p <- getPos
+    let !c = moving p
+        l1 = map (genmvT p) $ genMoveTransf p c
+        l2 = map (genmv True p) $ genMoveCapt p c
+        -- lnc = map (genmv True p) $ genMoveNCaptToCheck p c
+        (pl2, _) = genMoveCaptWL p c
+        l2w = map (genmv True p) pl2
+        -- l2w = map (genmv True p) $ genMoveCaptSEE p c
+        lc = map (genmv True p) $ genMoveFCheck p c
+        -- the non capturing check moves have to be at the end (tested!)
+        -- else if onlyWinningCapts then l1 ++ l2w ++ lnc else l1 ++ l2 ++ lnc
+        !mvs | isCheck p c      = lc
+             | onlyWinningCapts = l1 ++ genCMoves p c
+             | otherwise        = l1 ++ l2
+    return mvs
+
+-- Generate only tactical moves, i.e. promotions, captures & check escapes
+genTactMoves' :: CtxMon m => Game r m [Move]
+genTactMoves' = do
     p <- getPos
     let !c = moving p
         l1 = map (genmvT p) $ genMoveTransf p c
