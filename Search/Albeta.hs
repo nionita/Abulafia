@@ -901,12 +901,16 @@ checkFailOrPVLoop xstats b d e s nst = do
 -- But we consider the best moves first (best from previous iteration, killers)
 genAndSort :: Node m => Seq Move -> Killer -> Int -> Bool -> Search m (Alt Move)
 genAndSort lastpath kill d pv = do
+    kl  <- lift $ filterM legalEdge $ killerToList kill
     adp <- gets absdp 
-    kl <- lift $ filterM legalEdge $ killerToList kill
-    esp <- lift $ genEdges d adp pv'
-    let es = bestFirst (unseq lastpath) kl esp
+    esp <- lift $ genEdges d adp pv' ttm kl
+    let !es = prf ++ esp
     return $ Alt es
     where pv' = pv || not (nullSeq lastpath)
+          (ttm, prf) = if nullSeq lastpath
+                          then (Nothing, [])
+                          else case head $ unseq lastpath of
+                                   e -> (Just e, [e])
 
 -- Late Move Reduction
 -- {-# INLINE nextDepth #-}
@@ -944,8 +948,9 @@ isPruneFutil d a
                else return False
 
 {-# INLINE checkPath #-}
--- checkPath _ _ _ s = return s
 checkPath :: Node m => NodeState -> Int -> String -> Path -> Search m Path
+checkPath _ _ _ s = return s
+{--
 checkPath nst d mes s = do
     iss  <- gets short
     abrt <- gets abort
@@ -953,6 +958,7 @@ checkPath nst d mes s = do
          lift $ informStr $ "Short - " ++ mes
          modify $ \s' -> s' { short = True }
     return s
+--}
 
 trimax :: Int -> Int -> Int -> Int
 trimax a b x = if x < a then a else if x > b then b else x
@@ -965,9 +971,8 @@ pvQSearch a b c = do				   -- to avoid endless loops
     !tact <- lift tactical
     if tact
        then do
-           (es1, es2) <- lift $ genEdges 0 0 False
-           let edges = Alt $ es1 ++ es2
-           if noMove edges
+           !es <- lift $ genEdges 0 0 False Nothing []
+           if null es
               -- then qindent ("<= " ++ show stp) >> return stp
               then return $! trimax a b stp
               else if c >= qsMaxChess
@@ -978,9 +983,10 @@ pvQSearch a b c = do				   -- to avoid endless loops
                           -- if 1 move: search even deeper
                           -- if 2 moves: same depth
                           -- if 3 or more: no extension
-                          let !esc = lenmax3 $ unalt edges
+                          let !esc = lenmax3 es
                               !nc = c + esc - 2
                               !a' = if stp > a then stp else a
+                              edges = Alt es
                           !s <- pvLoop (pvQInnerLoop b nc) a' edges
                           -- qindent $ "<= " ++ show s
                           return s
@@ -993,13 +999,13 @@ pvQSearch a b c = do				   -- to avoid endless loops
                       -- then qindent ("<= " ++ show a) >> return a
                       then return a
                       else do
-                          edges <- liftM Alt $ lift genTactEdges
-                          if noMove edges
+                          es <- lift genTactEdges
+                          if null es
                              -- then qindent ("<= " ++ show stp) >> return stp
                              then return $! trimax a b stp
                              else do
                                  let !a' = if stp > a then stp else a
-                                 !s <- pvLoop (pvQInnerLoop b c) a' edges
+                                 !s <- pvLoop (pvQInnerLoop b c) a' $ Alt es
                                  -- qindent $ "<= " ++ show s
                                  return s
     where lenmax3 as = lenmax3' 0 as
@@ -1147,6 +1153,7 @@ viztreeABD a b d = when viztree $ lift $ logmes $ "***ABD " ++ show a ++ " " ++ 
 viztreeReSe :: Node m => Search m ()
 viztreeReSe = when viztree $ lift $ logmes "***RESE"
 
+{--
 bestFirst :: Eq e => [e] -> [e] -> ([e], [e]) -> [e]
 bestFirst path kl (es1, es2)
     | null path = es1 ++ kl ++ delall es2 kl
@@ -1154,6 +1161,7 @@ bestFirst path kl (es1, es2)
     where delall = foldr delete
           (e:_)  = path
 {-# SPECIALIZE bestFirst :: [Move] -> [Move] -> ([Move], [Move]) -> [Move] #-}
+--}
 
 pushKiller :: Move -> Int -> Killer -> Killer
 pushKiller !e s NoKiller = OneKiller e s

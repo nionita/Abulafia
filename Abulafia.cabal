@@ -107,6 +107,17 @@ Executable Abulafia
                  -dsuppress-all
                  -dsuppress-uniques
 
+Executable TestMoveList
+  Main-is: Tests/TestMoveList.hs
+  Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
+                 random, stream-fusion, directory, transformers,
+                 vector-algorithms, primitive
+  -- extensions:  NoMonomorphismRestriction
+  GHC-Options: -O2
+               -funbox-strict-fields
+               -fspec-constr-count=24
+               -funfolding-use-threshold=32
+
 -- Executable LearnSTS
 --   Main-is:             Tests/LearnSTS.hs
 --   Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random, stream-fusion, bytestring, directory

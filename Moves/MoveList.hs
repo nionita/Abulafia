@@ -14,6 +14,7 @@ import Data.Foldable (foldrM)
 import qualified Data.Vector.Unboxed.Mutable as U
 import Data.Vector.Algorithms.Insertion (sortByBounds)
 import Data.Word
+import Debug.Trace (trace)
 
 import Moves.MoveVector
 import Struct.Struct
@@ -24,20 +25,18 @@ import Moves.SEE
 maxMovesPerPos = 256	-- should be fine in almost all postions
 maxCaptsPerPos =  64	-- should be fine in almost all postions
 
--- type Vect  s = STVector s Move	-- move vector
-type Vect  s = U.MVector s Move	-- move vector
--- type VectZ s = STVector s (Move, Int, Int)	-- zip3 vector (for MVV-LVA sort)
+type Vect  s = U.MVector s Move			-- move vector
 type VectZ s = U.MVector s (Move, Int, Int)	-- zip3 vector (for MVV-LVA sort)
 
 data MList s = MList {
                  mlPos    :: MyPos,		-- the position for which we generate the moves
                  mlColor  :: Color,		-- the color for which we generate the moves
-                 mlVec    :: U.MVector s Move,		-- vector of moves
+                 mlVec    :: Vect s,		-- vector of moves
                  mlToMove :: !Int,		-- index of the next move to execute
                  mlToGen  :: !Int,		-- index of the next location to generate moves
                  mlNextPh :: GenPhase s,	-- function for the next move generation phase
                  mlCheck  :: CheckFunc s,	-- function to check the next move
-                 mlTTMove :: Maybe Move,	-- TT move (if any)
+                 mlTTMove :: Maybe Move,	-- TT move (if any): already searched
                  mlKills  :: [Move],		-- list of killer moves
                  mlBads   :: [Move]		-- list of bad captures (with negative SEE)
                }
@@ -63,7 +62,10 @@ listMoves :: MList s -> ST s [Move]
 listMoves ml = do
     sm <- splitMove ml
     case sm of
-        Just (m, ml') -> (m :) <$> listMoves ml'
+        -- Just (m, ml') -> (m :) <$> listMoves ml'
+        Just (m, ml') -> do
+            rest <- listMoves ml'
+            return $ m : rest
         Nothing       -> return []
 
 -- Only for (good) captures
@@ -92,7 +94,7 @@ constOk _ _ = Ok
 splitMove :: MList s -> ST s (Maybe (Move, MList s))
 splitMove ml
     | mlToMove ml >= mlToGen ml = do
-        mml <- nextPhase ml
+        mml <- trace trm $ nextPhase ml
         case mml of
             Nothing  -> return Nothing
             Just ml' -> splitMove ml'
@@ -102,9 +104,11 @@ splitMove ml
             Ok    -> return $ Just (m, ml1)
             Skip  -> splitMove ml1
             Delay -> splitMove ml1 { mlBads = m : mlBads ml }
-    where !ml1 = ml { mlToMove = mlToMove ml + 1 }
+    -- where !ml1 = ml { mlToMove = mlToMove ml + 1 }
+    where ml1 = ml { mlToMove = mlToMove ml + 1 }
+          trm  = show (mlToMove ml) ++ " >= " ++ show (mlToGen ml) ++ " : next phase"
 
-genCapts :: MyPos -> Color -> U.MVector s Move -> Int -> ST s Int
+genCapts :: MyPos -> Color -> Vect s -> Int -> ST s Int
 genCapts pos col vec start = do
     let fts = genMoveCapt pos col	-- here: transformations are generated separately
     if null fts
@@ -136,15 +140,10 @@ genAMoves pos col ttmove kills = runST $ do
 newMoveList :: MyPos -> Color -> Maybe Move -> [Move] -> ST s (MList s)
 newMoveList pos col ttmove kills = do
     v <- U.new maxMovesPerPos
-    case ttmove of
-        Nothing -> return ml1 { mlVec = v }
-        Just m  -> U.unsafeWrite v 0 m >> return ml2 { mlVec = v }
-    where !ml1 = MList { mlPos = pos, mlColor = col, mlToMove = 0, mlToGen = 0,
-                         mlNextPh = nextPhaseGoodCapts, mlCheck = constOk,
-                         mlTTMove = Nothing, mlKills = kills, mlBads = [] }
-          !ml2 = MList { mlPos = pos, mlColor = col, mlToMove = 0, mlToGen = 1,
-                         mlNextPh = nextPhaseGoodCapts, mlCheck = constOk,
-                         mlTTMove = ttmove,  mlKills = kills, mlBads = [] }
+    return ml { mlVec = v, mlTTMove = ttmove }
+    where !ml = MList { mlPos = pos, mlColor = col, mlToMove = 0, mlToGen = 0,
+                        mlNextPh = nextPhaseGoodCapts, mlCheck = constOk,
+                        mlTTMove = Nothing, mlKills = kills, mlBads = [] }
 
 -- A move generation function (here genCapts) takes a vector and a position in it
 -- (index, 0 is the first entry), in which it writes
@@ -154,10 +153,10 @@ nextPhaseGoodCapts ml = do
     n <- genCapts (mlPos ml) (mlColor ml) (mlVec ml) (mlToGen ml)
     return $ Just ml { mlToGen = n, mlNextPh = nextPhaseKillers, mlCheck = exclTTMove }
     where exclTTMove = case mlTTMove ml of
-                           -- Nothing -> checkSEE
-                           -- Just m  -> \_ e -> if e == m then Skip else checkSEE ml e
-                           Nothing -> constOk
-                           Just m  -> \_ e -> if e == m then Skip else constOk ml e
+                           Nothing -> checkSEE
+                           Just m  -> \_ e -> if e == m then Skip else checkSEE ml e
+                           -- Nothing -> constOk
+                           -- Just m  -> \_ e -> if e == m then Skip else constOk ml e
 
 nextPhaseKillers :: GenPhase s
 nextPhaseKillers ml = do
@@ -175,15 +174,22 @@ nextPhaseQuiet ml = do
     n <- genQuiet (mlPos ml) (mlColor ml) (mlVec ml) (mlToGen ml)
     return $ Just ml { mlToGen = n, mlNextPh = nextPhaseBadCapts, mlCheck = exclTTKs }
     where exclTTKs = case mlTTMove ml of
-                         Nothing -> \_ e -> if (e `elem` mlKills ml) then Skip else Ok
-                         Just m  -> \_ e -> if (e == m || e `elem` mlKills ml) then Skip else Ok
+                         Nothing -> if null (mlKills ml)
+                                       then constOk
+                                       else \_ e -> if (e `elem` mlKills ml) then Skip else Ok
+                         Just m  -> if null (mlKills ml)
+                                       then \_ e -> if (e == m) then Skip else Ok
+                                       else \_ e -> if (e == m || e `elem` mlKills ml)
+                                                       then Skip
+                                                       else Ok
 
 nextPhaseBadCapts :: GenPhase s
 nextPhaseBadCapts ml = do
-    n <- copyList (mlVec ml) (mlToGen ml) (reverse $ mlBads ml)
+    -- n <- copyList (mlVec ml) (mlToGen ml) (reverse $ mlBads ml)
+    n <- copyList (mlVec ml) (mlToGen ml) (mlBads ml)
     return $ Just ml { mlToGen = n, mlNextPh = nextPhaseEnd, mlCheck = constOk }	-- TT move checked earlier
 
-copyList :: U.MVector s Move -> Int -> [Move] -> ST s Int
+copyList :: Vect s -> Int -> [Move] -> ST s Int
 copyList vec i ms = go i ms
     where go !i []     = return i
           go !i (m:ms) = U.unsafeWrite vec i m >> go (i+1) ms
@@ -195,16 +201,15 @@ sortVecMVVLVA vec start stop = sortByBounds mvvlva vec start stop
               | v1 > v2 = LT
               | otherwise = compare a1 a2
 
-genQuiet :: MyPos -> Color -> U.MVector s Move -> Int -> ST s Int
+genQuiet :: MyPos -> Color -> Vect s -> Int -> ST s Int
 genQuiet pos col vec start = do
     let fts = genMoveCast pos col ++ map (genmv False pos) (genMoveNCapt pos col)
     copyList vec start fts
 
 checkSEE :: CheckFunc s
-checkSEE ml move = if v >= 0 then Ok else Delay
-    where (v, _) = valueSEE p (mlColor ml) to f
-          to = toSquare move
-          p  = mlPos ml
+checkSEE ml move = if (fst $ valueSEE p (mlColor ml) to f) >= 0 then Ok else Delay
+    where !to = toSquare move
+          !p  = mlPos ml
           Busy _ f = tabla p to
 
 -- Invoke the next phase of move generation and return new move list if

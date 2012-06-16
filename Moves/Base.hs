@@ -120,17 +120,17 @@ captWLDepth = 5		-- so far 5 seems to be best (after ~100 games)
 loosingLast :: Bool
 loosingLast = False
 
-genMoves :: CtxMon m => Int -> Int -> Bool -> Game r m ([Move], [Move])
-genMoves depth absdp pv = do
+genMoves :: CtxMon m => Int -> Int -> Bool -> Maybe Move -> [Move] -> Game r m [Move]
+genMoves depth absdp pv ttm kills = do
     p <- getPos
     let !c = moving p
         lc = map (genmv True p) $ genMoveFCheck p c
     if isCheck p c
-       then return (lc, [])
+       then return lc
        else do
-           let mvs = genAMoves p c Nothing []
+           let mvs = genAMoves p c ttm kills
                l1 = map (genmvT p) $ genMoveTransf p c
-           return (l1 ++ mvs, [])
+           return $ l1 ++ mvs	-- not really ok: what if ttm is a transformation?
 
 genMoves' :: CtxMon m => Int -> Int -> Bool -> Game r m ([Move], [Move])
 genMoves' depth absdp pv = do
