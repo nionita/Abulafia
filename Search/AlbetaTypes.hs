@@ -10,7 +10,7 @@ module Search.AlbetaTypes (
     ABControl(..)
 ) where
 
-import Control.Monad
+import Control.Monad ()
 
 import Struct.Struct
 
@@ -28,7 +28,7 @@ data ABControl = ABC {
 class Monad m => Node m where
     staticVal :: m Int  -- static evaluation of a node
     materVal  :: m Int  -- material evaluation (for prune purpose)
-    genEdges :: Int -> Int -> Bool -> m ([Move], [Move])  -- generate all legal edges
+    genEdges :: Int -> Int -> Bool -> Maybe Move -> [Move] -> m [Move]  -- generate all legal edges
     genTactEdges :: m [Move]  -- generate all edges in tactical positions
     legalEdge :: Move -> m Bool	-- is the move legal?
     killCandEdge :: Move -> Move -> m Bool	-- is the move killer candidate?
