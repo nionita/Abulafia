@@ -22,6 +22,7 @@ import Data.Bits
 import Data.List
 import Control.Monad.State.Lazy
 import Data.Ord (comparing)
+import qualified Data.IntSet as S
 import System.Random
 
 import Moves.BaseTypes
@@ -130,7 +131,22 @@ genMoves depth absdp pv ttm kills = do
        else do
            let mvs = genAMoves p c ttm kills
                l1 = map (genmvT p) $ genMoveTransf p c
-           return $ l1 ++ mvs	-- not really ok: what if ttm is a transformation?
+           -- checkMoves ttm (l1++mvs) kills
+           return $ l1 ++ mvs	-- not really ok: what if ttm is a promotion?
+
+-- This is just to debug the new move list
+checkMoves ttm ms kills = do
+    (cs, qs) <- genMoves' 0 0 False
+    let mapo = S.fromList $ map toInt $ cs ++ qs
+        mapn = S.fromList $ map toInt $ maybe ms (\x -> x:ms) ttm
+    when (mapn /= mapn) $ do
+        logMes "<+++> Difference in move lists:"
+        logMes $ "<+++> Old style: " ++ sho mapo
+        logMes $ "<+++> New style: " ++ sho mapn
+        logMes $ "<+++> Context:   " ++ show ttm ++ ", " ++ show kills
+    where toInt (Move w) = fromIntegral w
+          frInt i = Move (fromIntegral i)
+          sho = show . map frInt . S.toList
 
 genMoves' :: CtxMon m => Int -> Int -> Bool -> Game r m ([Move], [Move])
 genMoves' depth absdp pv = do

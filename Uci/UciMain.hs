@@ -373,7 +373,8 @@ searchTheTree tief mtief timx tim tpm mtg lsc lpv rmvs = do
         else do
             chg' <- readChanging
             if working chg'
-                then searchTheTree (tief + 1) mtief (currms + mx) tim tpm mtg (Just sc) path rmvsf
+                -- then searchTheTree (tief + 1) mtief (currms + mx) tim tpm mtg (Just sc) path rmvsf
+                then searchTheTree (tief + 1) mtief 0 tim tpm mtg (Just sc) path rmvsf
                 else do
                     ctxLog "Info" "in searchTheTree: not working"
                     giveBestMove path -- was stopped

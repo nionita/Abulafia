@@ -357,7 +357,11 @@ pvRootSearch a b d lastpath rmvs aspir = do
                         else do
                            let !lm = firstMove lastpath
                            return $ Alt $ lm : delete lm (unalt rmvs)
-    -- lift $ informStr $ "Root moves: " ++ show edges
+    -- Just to debug move list:
+    when (d == 1) $ do
+        gs <- genAndSort lastpath NoKiller d True
+        lift $ informStr $ "Root moves gs: " ++ show gs
+    lift $ informStr $ "Root moves rm: " ++ show edges
     -- pvcont is the pv continuation from the last iteration
     let !pvc  = if nullSeq lastpath then lastpath else Seq $ tail $ unseq lastpath
         !nsti = nst0 { cursc = pathFromScore "Alpha" a, pvcont = pvc }
@@ -424,10 +428,12 @@ pvInnerRoot :: Node m
             -> Search m (Bool, NodeState)
 pvInnerRoot b d nst e = do
     -- when debug $ logmes $ "--> pvInner: b d old: " ++ show b ++ ", " ++ show d ++ ", " ++ show old
-    abrt <- timeToAbort
-    if abrt
-       then return (True, nst)
-       else do
+    -- abrt <- timeToAbort
+    -- if abrt
+       -- then do
+         -- lift $ informStr "Time to abort!"
+         -- return (True, nst)
+       -- else do
          old <- get
          when (draft old >= depthForCM) $ lift $ informCM e $ movno nst
          pindent $ "-> " ++ show e
@@ -557,7 +563,7 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
                  when (useNegHist && forpv nst && a == b - 1 && mn <= negHistMNo)
                       $ lift $ betaMove False d (absdp sst) e
                  if (forpv nst)
-                    then return (True, nst { cursc = s })	-- i.e we failed low in aspiration
+                    then trueInRoot "alpha cut" >> return (True, nst { cursc = s })	-- i.e we failed low in aspiration
                     else do
                       let es = unseq $ pathMoves s
                       kill1 <- if d >= 2 && moreThanOne es
@@ -584,6 +590,7 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
                    let nst1 = nst { cursc = csc, pvsl = xpvslg, pvcont = emptySeq }
                    -- lift $ logmes $ "Root move " ++ show e ++ " failed high: " ++ show s
                    -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
+                   trueInRoot "beta cut"
                    return (True, nst1)
                  else {-# SCC "scoreBetterAtRoot" #-} do	-- means: > a && < b
                    -- lift $ informStr $ "Next info: " ++ pathOrig s
@@ -601,6 +608,8 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
                    -- lift $ logmes $ "Root move " ++ show e ++ " improves alpha: " ++ show s
                    -- lift $ informStr $ "Better (" ++ show s ++ "):" ++ show np
                    return (False, nst1)
+
+trueInRoot why = lift $ informStr $ "Abort loop in root: " ++ why
 
 insertToPvs :: Node m => Int -> Pvsl -> [Pvsl] -> Search m [Pvsl]
 insertToPvs _ p [] = return [p]
@@ -1078,7 +1087,7 @@ timeToAbort = do
                    if not abrt
                       then return False
                       else do
-                          lift $ informStr "Albeta: search abort!"
+                          lift $ informStr "Albeta: search aborted because of time!"
                           put s { abort = True }
                           return True
 
