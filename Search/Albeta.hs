@@ -376,6 +376,7 @@ pvRootSearch a b d lastpath rmvs aspir = do
     nstf <- pvLoop (pvInnerRoot (pathFromScore "Beta" b) d) nsti edges
     reportStats
     let failedlow = (a, emptySeq, edges)	-- just to permit aspiration to retry
+        failedhi  = (b, emptySeq, edges)
     abrt <- gets abort
     if abrt
        then return failedlow
@@ -386,24 +387,24 @@ pvRootSearch a b d lastpath rmvs aspir = do
               then do
                 when (not aspir) $ lift $ informStr "Failed low at root!"
                 return failedlow
-              else do
-                 -- lift $ mapM_ (\m -> informStr $ "Root move: " ++ show m) (pvsl nstf)
-                 albest' <- gets (albest . ronly)
-                 (s, p) <- if s' >= b
-                              then return (s', unseq $ pathMoves (cursc nstf))
-                              else lift $ choose albest'
+              else if s' >= b
+                then return failedhi
+                else do
+                  -- lift $ mapM_ (\m -> informStr $ "Root move: " ++ show m) (pvsl nstf)
+                  albest' <- gets (albest . ronly)
+                  (s, p) <- lift $ choose albest'
                                         $ sortBy (comparing fstdesc)
                                         $ map pvslToPair
                                         $ filter pvGood $ pvsl nstf
-                 when (d < depthForCM) $ informBest s d p
-                 -- when (length p < d) $ do
-                 --     s <- get
-                 --     lift $ informStr $ "Shorter path depth " ++ show d
-                 --                        ++ " cursc: " ++ show (cursc nstf)
-                 let (best':_) = p
-                     allrmvs = if s' >= b then unalt edges else map pvslToMove (pvsl nstf)
-                     xrmvs = Alt $ best' : delete best' allrmvs	-- best on top
-                 return (s, Seq p, xrmvs)
+                  when (d < depthForCM) $ informBest s d p
+                  -- when (length p < d) $ do
+                  --     s <- get
+                  --     lift $ informStr $ "Shorter path depth " ++ show d
+                  --                        ++ " cursc: " ++ show (cursc nstf)
+                  let (best':_) = p
+                      allrmvs = if s' >= b then unalt edges else map pvslToMove (pvsl nstf)
+                      xrmvs = Alt $ best' : delete best' allrmvs	-- best on top
+                  return (s, Seq p, xrmvs)
     -- lift $ informStr $ "*** Killers at root: " ++ show (killer nstf)
     where fstdesc (a', _) = -a'
 
@@ -436,12 +437,12 @@ pvInnerRoot :: Node m
             -> Search m (Bool, NodeState)
 pvInnerRoot b d nst e = do
     -- when debug $ logmes $ "--> pvInner: b d old: " ++ show b ++ ", " ++ show d ++ ", " ++ show old
-    -- abrt <- timeToAbort
-    -- if abrt
-       -- then do
-         -- lift $ informStr "Time to abort!"
-         -- return (True, nst)
-       -- else do
+    abrt <- timeToAbort
+    if abrt
+       then do
+         lift $ informStr "Time to abort!"
+         return (True, nst)
+       else do
          old <- get
          when (draft old >= depthForCM) $ lift $ informCM e $ movno nst
          pindent $ "-> " ++ show e
