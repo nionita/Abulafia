@@ -98,7 +98,7 @@ Executable Abulafia
   else
     -- C-sources: Cbits/rts_hooks.c
     -- GHC-Options: -with-rtsopts=-N2 -M256m -H128m
-    GHC-Options: -with-rtsopts=-N2
+    GHC-Options: -with-rtsopts=-N3
 
 -- Executable LearnSTS
 --   Main-is:             Tests/LearnSTS.hs
