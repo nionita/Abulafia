@@ -16,11 +16,15 @@ newtype STPlus r s m a = STPlus { runSTPlus :: s -> (a -> s -> m r) -> m r }
 
 instance Monad (STPlus r s m) where
     return a = STPlus $ \s k -> k a s
-    c >>= f  = STPlus $ \s0 k -> runSTPlus c s0 $ \a s1 -> runSTPlus (f a) s1 k
+    {-# INLINE return #-}
+    c >>= f  = STPlus $ \s0 k -> runSTPlus c s0 $ \a s1 -> case f a of fa -> runSTPlus fa s1 k
+    {-# INLINE (>>=) #-}
 
 instance MonadState s (STPlus r s m) where
     get   = STPlus $ \s k -> k s  s
+    {-# INLINE get #-}
     put s = STPlus $ \_ k -> k () s
+    {-# INLINE put #-}
 
 instance MonadIO m => MonadIO (STPlus r s m) where
     {-# INLINE liftIO #-}

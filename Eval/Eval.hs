@@ -7,7 +7,7 @@ module Eval.Eval (
     paramNames, parLims, parDim
 ) where
 
-import Data.Bits
+import Data.Bits hiding (popCount)
 import Data.List
 import Control.Monad.State.Lazy
 import Data.Array.Unboxed

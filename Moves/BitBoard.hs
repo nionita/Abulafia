@@ -6,7 +6,8 @@ module Moves.BitBoard (
 -- import Control.Exception (assert)
 import Data.Array.Base
 import Data.Array.Unboxed
-import Data.Bits
+import Data.Bits hiding (popCount)
+import qualified Data.Bits as B
 import Data.List.Stream (unfoldr)
 import Data.Word
 
@@ -45,6 +46,7 @@ bitScanDatabase = array (0, 63) paar
 -- Population count function, good for bigger populations:
 -- Already optimized!
 popCount :: BBoard -> Int
+{--
 popCount bb = fromIntegral $ case  bb         - ((bb `shiftR` 1)  .&. k1) of { x1 ->
                              case (x1 .&. k2) + ((x1 `shiftR` 2)  .&. k2) of { x2 ->
                              case (x2         +  (x2 `shiftR` 4)) .&. k4  of { x3 ->
@@ -55,15 +57,20 @@ k1 = 0x5555555555555555
 k2 = 0x3333333333333333
 k4 = 0x0F0F0F0F0F0F0F0F
 kf = 0x0101010101010101
+--}
+popCount = B.popCount
 
 -- Population count function, good for small populations:
 -- Already optimized!
 popCount1 :: BBoard -> Int
+{--
 popCount1 bb = go bb 0
     where go 0  !n = n
           go !x !n = let !n1 = n + 1
                          !x1 = x `xor` lsb x
                      in go x1 n1
+--}
+popCount1 = B.popCount
 
 {-# INLINE bbToSquares #-}
 bbToSquares :: BBoard -> [Square]
