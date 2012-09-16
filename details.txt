@@ -1,0 +1,12 @@
+Version Nickname Description                                      Remarks
+======= ======== ================================================ ===========================================
+0.61    futf3ns  Same as futf3n, but with non strict Search monad The non-strict version was in 30 games each
+                                                                  (also with other engines) better:
+                                                                  strict: -53 +- 102
+                                                                  non-st:  19 +-  97
+-------------------------------------------------------------------------------------------------------------
+0.61    futf3n   This is the last good main from 9.05.2012        Linked only with rtsops -N3 so it does not
+                 restored from 4465df8d8b, prepared for the new   eat the last root moves (which seems to be
+                 HP 2012.2 and with strict (>>=) + more inlines   a problem in RTS of ghc 7.4.1)
+                 for the Search monad (Search/SearchMonad.hs)
+-------------------------------------------------------------------------------------------------------------
