@@ -451,10 +451,10 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
         !a  = cursc nst
         !mn = movno nst
         !pvs = forpv nst
-        reduce = lmrActive && not (tact || inPv || spec || exd > 0 || d < lmrMinDRed)
         !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for the next search
+        reduce = lmrActive && not (tact || inPv || spec || exd > 0 || d1 < lmrMinDRed)
         -- (!d', reduced) = nextDepth (d+exd') (movno nst) reduce (forpv nst && a < b - 1)
-        (d', reduced) = nextDepth d1 mn reduce pvs
+        (d', reduced) = reduceDepth d1 mn reduce pvs
         !pvpath_ = pvcont nst
     pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
               ++ " exd' = " ++ show exd'
@@ -762,9 +762,9 @@ pvInnerLoopExten b d spec exd nst = do
         !inPv = ownnt nst == PVNode
         !pvs = forpv nst
         a = cursc nst
-        reduce = lmrActive && not (tact || inPv || pnearmate a || spec || exd > 0 || d < lmrMinDRed)
         !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for next search
-        (d', reduced) = nextDepth d1 mn reduce pvs
+        reduce = lmrActive && not (tact || inPv || pnearmate a || spec || exd > 0 || d1 < lmrMinDRed)
+        (d', reduced) = reduceDepth d1 mn reduce pvs
         !pvpath_ = pvcont nst
     pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
               ++ " exd' = " ++ show exd'
@@ -779,7 +779,7 @@ pvInnerLoopExten b d spec exd nst = do
         a' = pathScore a
         --2-- ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [] }
         -- hs = - ttpath
-    if hdeep >= d && (tp == 2 || tp == 1 && hscore > a' || tp == 0 && hscore <= a')
+    if hdeep >= d' && (tp == 2 || tp == 1 && hscore > a' || tp == 0 && hscore <= a')
        then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes' >> return ttpath
        else do
           if pvs
@@ -896,8 +896,8 @@ genAndSort lastpath kill d pv = do
 
 -- Late Move Reduction
 -- {-# INLINE nextDepth #-}
-nextDepth :: Int -> Int -> Bool -> Bool -> (Int, Bool)
-nextDepth d w lmr pvs
+reduceDepth :: Int -> Int -> Bool -> Bool -> (Int, Bool)
+reduceDepth d w lmr pvs
     | lmr       = (m0d, reduced)
     | otherwise = (d, False)	-- not reduced
     where !m0d = max 0 nd
