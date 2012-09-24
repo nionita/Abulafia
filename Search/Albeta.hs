@@ -83,7 +83,8 @@ lmrReduceArr = array ((1, 1), (lmrMaxDepth, lmrMaxWidth))
     [((i, j), ceiling $ logrd i j lmrRest) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
 
 logrd :: Int -> Int -> Double -> Double
-logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
+-- logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
+logrd i j f = log (fromIntegral i) * log (fromIntegral j) / f
 
 -- Parameters for futility pruning:
 futilActive :: Bool
@@ -446,10 +447,14 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
     old <- get
     exd' <- reserveExtension (usedext old) exd
     tact <- lift tactical
-    let inPv = ownnt nst == PVNode
-        a = cursc nst
+    let !inPv = ownnt nst == PVNode
+        !a  = cursc nst
+        !mn = movno nst
+        !pvs = forpv nst
         reduce = lmrActive && not (tact || inPv || spec || exd > 0 || d < lmrMinDRed)
-        (!d', reduced) = nextDepth (d+exd') (movno nst) reduce (forpv nst && a < b - 1)
+        !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for the next search
+        -- (!d', reduced) = nextDepth (d+exd') (movno nst) reduce (forpv nst && a < b - 1)
+        (d', reduced) = nextDepth d1 mn reduce pvs
         !pvpath_ = pvcont nst
     pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
               ++ " exd' = " ++ show exd'
@@ -466,43 +471,49 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
                                   else {-# SCC "firstFromContRoot" #-} return pvpath_
     -- when (nullSeq pvpath' && forpv nst) $ lift
     --                     $ logmes $ "pvpath is null: d=" ++ show d ++ ", ownnt =" ++ show (ownnt nst)
-    if forpv nst
+    if pvs	-- search of principal variation
        then {-# SCC "forpvSearchRoot" #-} do
            viztreeABD (pathScore $ -b) (pathScore $ -a) d'
            pvSearch nst (-b) (-a) d' pvpath' nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 11"
        else {-# SCC "nullWindowRoot" #-} do
            -- no futility pruning for root moves!
-           -- lift $ informStr $ "Search with closed window a = " ++ show (-a-scoreGrain)
-           --            ++ " b = " ++ show (-a) ++ " depth " ++ show d'
-           -- Only here we need IID, because previously, in PV, we had pvcont (from previous level)
-           -- and only at depth 0 we have nothing, but then the depth is too low for IID
+           -- Only here we need IID, because previously, in PV, we had pvcont (from previous draft)
+           -- and only at draft 1 we have nothing, but then the depth is too low for IID
            pvpath <- if useIID && nullSeq pvpath'
                         -- then {-# SCC "firstFromIIDRoot" #-} bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
                         then {-# SCC "firstFromIIDRoot" #-} bestMoveFromIID nst (-b) (-a) d' nulMoves
                         else {-# SCC "firstFromC&HRoot" #-} return pvpath'
-           viztreeABD (pathScore $ -a-pathGrain) (pathScore $ -a) d'
-           s1 <- pvSearch nst (-a-pathGrain) (-a) d' pvpath nulMoves
+           -- Here we expect to fail low
+           let aGrain = -a-pathGrain
+           viztreeABD (pathScore $ aGrain) (pathScore $ -a) d'
+           s1 <- pvSearch nst aGrain (-a) d' pvpath nulMoves
                    >>= return . pnextlev >>= checkPath nst d' "cpl 2"
            abrt <- gets abort
            if abrt || s1 <= a -- we failed low as expected
               then return s1
               else {-# SCC "nullWinResRoot" #-} do
-                 -- here we didn't fail low and need re-search
+                 -- Here we didn't fail low and need re-search
+                 -- Two re-searches must be considered: a: full depth, b: full window
                  pindent $ "Research! (" ++ show s1 ++ ")"
                  viztreeReSe
                  -- Try: no null move in re-search
-                 -- let nst' = nst { ownnt = PVNode }
                  let nst' = nst { forpv = True }
-                 if reduced && d > 1
+                 if reduced 	-- && d > 1
                     then do	-- re-search with no reduce for root moves
-                      let d''= fst $! nextDepth (d+exd') (movno nst) False True
-                      viztreeABD (pathScore $ -b) (pathScore $ -a) d''
-                      {-# SCC "nullWinResRootDD" #-} pvSearch nst' (-b) (-a) d'' pvpath 0
-                         >>= return . pnextlev             >>= checkPath nst d'' "cpl 12"
+                      viztreeABD (pathScore $ aGrain) (pathScore $ -a) d1
+                      s2 <- {-# SCC "nullWinResRootDD" #-} pvSearch nst aGrain (-a) d1 pvpath 0
+                         >>= return . pnextlev             >>= checkPath nst d1 "cpl 12"
+                      abrt <- gets abort
+                      if abrt || s2 <= a -- we failed low as expected
+                         then return s2
+                         -- we must try full window
+                         else pvSearch nst' (-b) (-a) d1 pvpath 0
+                                 >>= return . pnextlev      >>= checkPath nst d1 "cpl 12a"
                     else {-# SCC "nullWinResRootSD" #-} do
-                        viztreeABD (pathScore $ -b) (pathScore $ -a) d'
-                        pvSearch nst' (-b) (-a) d' pvpath 0	-- no null move next search
-                          >>= return . pnextlev             >>= checkPath nst d' "cpl 13"
+                        -- Depth was not reduced, so re-search full window
+                        viztreeABD (pathScore $ -b) (pathScore $ -a) d1
+                        pvSearch nst' (-b) (-a) d1 pvpath 0	-- no null move next search
+                          >>= return . pnextlev             >>= checkPath nst d1 "cpl 13"
 
 checkFailOrPVRoot :: Node m => SStats -> Path -> Int -> Move -> Path
                   -> NodeState -> Search m (Bool, NodeState)
@@ -749,10 +760,11 @@ pvInnerLoopExten b d spec exd nst = do
     let mn = movno nst
         -- late move reduction
         !inPv = ownnt nst == PVNode
+        !pvs = forpv nst
         a = cursc nst
         reduce = lmrActive && not (tact || inPv || pnearmate a || spec || exd > 0 || d < lmrMinDRed)
-        !de = d + exd'
-        (!d', reduced) = nextDepth de mn reduce (forpv nst && a < b - 1)
+        !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for next search
+        (d', reduced) = nextDepth d1 mn reduce pvs
         !pvpath_ = pvcont nst
     pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
               ++ " exd' = " ++ show exd'
@@ -770,13 +782,12 @@ pvInnerLoopExten b d spec exd nst = do
     if hdeep >= d && (tp == 2 || tp == 1 && hscore > a' || tp == 0 && hscore <= a')
        then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes' >> return ttpath
        else do
-          if forpv nst
+          if pvs
              then do
                 viztreeABD (pathScore $ -b) (pathScore $ -a) d'
                 pvpath <- if nullSeq pvpath_ then bestMoveFromHash else return pvpath_
                 pvSearch nst (-b) (-a) d' pvpath nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 14"
              else do
-                viztreeABD (pathScore $ -a-pathGrain) (pathScore $ -a) d'
                 -- let pvpath = if null lastpath
                 --           then if hdeep > 0 && tp > 0 then [e'] else []
                 --           else lastpath
@@ -787,29 +798,35 @@ pvInnerLoopExten b d spec exd nst = do
                              -- then bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
                              then bestMoveFromIID nst (-b) (-a) d' nulMoves
                              else return pvpath'
-                !s1 <- pvSearch nst (-a-pathGrain) (-a) d' pvpath nulMoves
-                       >>= return . pnextlev >>= checkPath nst d "cpl 9"
+                -- Here we expect to fail low
+                let aGrain = -a-pathGrain
+                viztreeABD (pathScore aGrain) (pathScore $ -a) d'
+                !s1 <- pvSearch nst aGrain (-a) d' pvpath nulMoves
+                       >>= return . pnextlev >>= checkPath nst d' "cpl 9"
                 abrt <- gets abort
                 if abrt || s1 <= a
                    then return s1	-- failed low (as expected) or aborted
                    else do
-                     -- we didn't fail low and need re-search
+                     -- we didn't fail low and need re-search, 2 kinds: full depth, full window
                      pindent $ "Research! (" ++ show s1 ++ ")"
                      viztreeReSe
                      -- Try: no null move in re-search
-                     -- let nst' = nst { ownnt = PVNode }	-- always?
                      let nst' = nst { forpv = True }
-                     if reduced && (d >= lmrMinDFRes || d >= 1 && inPv)
-                     -- if reduced && d > 1
+                     if reduced		-- && (d >= lmrMinDFRes || d >= 1 && inPv)
                         then do	-- re-search with no reduce (expensive!)
-                           let !d'' = fst $ nextDepth (d+exd') mn False inPv
-                           viztreeABD (pathScore $ -b) (pathScore $ -a) d''
-                           pvSearch nst' (-b) (-a) d'' pvpath 0
-                             >>= return . pnextlev >>= checkPath nst d'' "cpl 15"
+                            viztreeABD (pathScore aGrain) (pathScore $ -a) d1
+                            !s2 <- pvSearch nst aGrain (-a) d1 pvpath 0
+                                       >>= return . pnextlev >>= checkPath nst d1 "cpl 9a"
+                            abrt <- gets abort
+                            if abrt || s2 <= a
+                               then return s2	-- failed low (as expected) or aborted
+                               else pvSearch nst' (-b) (-a) d1 pvpath 0
+                                        >>= return . pnextlev >>= checkPath nst d1 "cpl 15"
                         else do
-                           viztreeABD (pathScore $ -b) (pathScore $ -a) d'
-                           pvSearch nst' (-b) (-a) d' pvpath 0
-                             >>= return . pnextlev >>= checkPath nst d' "cpl 16"
+                           -- was not reduced, try full window
+                           viztreeABD (pathScore $ -b) (pathScore $ -a) d1
+                           pvSearch nst' (-b) (-a) d1 pvpath 0
+                             >>= return . pnextlev >>= checkPath nst d1 "cpl 16"
 
 pnearmate :: Path -> Bool
 pnearmate = nearmate . pathScore
@@ -880,13 +897,14 @@ genAndSort lastpath kill d pv = do
 -- Late Move Reduction
 -- {-# INLINE nextDepth #-}
 nextDepth :: Int -> Int -> Bool -> Bool -> (Int, Bool)
-nextDepth !d !w !lmr !pv = (m0d, reduced)
-    where !nd = if lmr then d - k else d1
-          !idx = (min lmrMaxDepth d, min lmrMaxWidth w)
-          k  = if pv then lmrReducePv ! idx else lmrReduceArr ! idx
-          !reduced = nd < d1
-          !d1 = d - 1
-          !m0d = max 0 nd
+nextDepth d w lmr pvs
+    | lmr       = (m0d, reduced)
+    | otherwise = (d, False)	-- not reduced
+    where !m0d = max 0 nd
+          !reduced = m0d < d
+          nd = d - k
+          k  = if pvs then lmrReducePv ! idx else lmrReduceArr ! idx
+          idx = (min lmrMaxDepth $ max 1 d, min lmrMaxWidth $ max 1 w)
 
 -- This is a kind of monadic fold optimized for (beta) cut
 -- {-# INLINE pvLoop #-}

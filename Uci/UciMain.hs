@@ -26,7 +26,7 @@ import Eval.Eval (paramNames)
 import Eval.FileParams (makeEvalState)
 
 forceLogging :: Bool
-forceLogging = False
+forceLogging = True
 
 initContext :: GConfig -> IO Context
 initContext cf@(GConfig cfg) = do
@@ -427,7 +427,7 @@ answer s = do
 -- Version and suffix:
 progVersion, progVerSuff, progLogName :: String
 progVersion = "0.61"
-progVerSuff = "futf3ns"
+progVerSuff = "rese2"
 
 progLogName = "abulafia" ++ "-" ++ progVersion
                  ++ if null progVerSuff then ""
