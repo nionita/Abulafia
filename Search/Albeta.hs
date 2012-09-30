@@ -934,11 +934,14 @@ isPruneFutil d a
 -- checkPath _ _ _ s = return s
 checkPath :: Node m => NodeState -> Int -> String -> Path -> Search m Path
 checkPath nst d mes s = do
-    iss  <- gets short
-    abrt <- gets abort
-    when (not iss && not abrt && ownnt nst == PVNode && length (unseq $ pathMoves s) < d) $ do
-         lift $ informStr $ "Short - " ++ mes
-         modify $ \s' -> s' { short = True }
+    when (ownnt nst == PVNode) $ do
+        iss  <- gets short
+        when (not iss) $ do
+            abrt <- gets abort
+            when (not abrt && length (unseq $ pathMoves s) < d) $ do
+                lift $ informStr $ "Short - " ++ mes ++ " : d = " ++ show d
+                                     ++ ", path = " ++ show s
+                modify $ \s' -> s' { short = True }
     return s
 
 trimax :: Int -> Int -> Int -> Int
