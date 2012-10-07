@@ -16,7 +16,9 @@ import Moves.Board
 import Moves.Base
 import Moves.History
 import Eval.Eval
-import Hash.SimpleCache
+-- import Hash.SimpleCache
+import Hash.TransTab
+import Search.AlbetaTypes
 import Search.Albeta
 import Search.SearchMonad
 import Config.ConfigClass
@@ -27,15 +29,15 @@ instance CtxMon IO where
     tellCtx = tellInIO
 
 main = defaultMain [
-           bench "depth 2" $ progMain 2,
-           bench "depth 3" $ progMain 3,
-           bench "depth 4" $ progMain 4
-           -- bench "depth 5" $ progMain 5
+           -- bench "depth 2" $ progMain 2,
+           -- bench "depth 3" $ progMain 3,
+           -- bench "depth 4" $ progMain 4
+           bench "depth 5" $ progMain 6
        ]
 
 progMain depth = do
     let fen   = "1R6/8/8/8/8/2K5/8/k7 w - - 0 1"
-        pos = updatePos True $ posFromFen fen
+        pos = updatePos $ posFromFen fen
     -- putStrLn $ "Analise depth " ++ show depth ++ " fen " ++ fen
     ha  <- newCache defaultConfig
     hi  <- newHist
@@ -43,7 +45,7 @@ progMain depth = do
     let inist = posToState pos ha hi evs
     searchTheTree 1 depth inist Nothing [] []
 
-tellInIO :: Comm Move Int -> IO ()
+tellInIO :: Comm -> IO ()
 -- tellInIO (LogMes s) = putStrLn $ "Log: " ++ s
 -- tellInIO (BestMv a b c d) = putStrLn $ "info score " ++ show a ++ " depth " ++ show b
 --                                          ++ " nodes " ++ show c ++ " pv " ++ show d
@@ -65,7 +67,9 @@ bestMoveCont tiefe stati lastsc lpv rmvs = do
                 lastpv = lpv,
                 lastscore = lastsc,
                 rootmvs   = rmvs,
-                window    = aspirWindow
+                window    = aspirWindow,
+                best     = True,
+                stoptime = 0
                 }
     ((sc, path, rmvsf), statf) <- runSearch (alphaBeta abc) stati
     when (sc == 0) $ return ()
@@ -92,7 +96,8 @@ searchTheTree tief mtief mystate lsc lpv rmvs = do
 giveBestMove :: [Move] -> Int -> IO ()
 giveBestMove mvs nodes = return ()
     -- putStrLn $ " -> bestmove: " ++ bm ++ ", nodes: " ++ show nodes
-    where bm = sead . words . show . head $ mvs
+    -- where bm = sead . words . show . head $ mvs
+    where bm = show . head $ mvs
           sead = head . tail
 
 -- Opens a parameter file for eval, read it and create an eval state

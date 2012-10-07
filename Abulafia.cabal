@@ -66,10 +66,10 @@ Executable FixPlayFen
   if flag(profile)
     GHC-Options: -auto-all
 
--- Executable BenchFixPlayFen
---   Main-is:	Tests/TestFixPlayFen.hs
---   Build-depends:	base >= 4, array, mtl, parsec, criterion
---   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=4 -funfolding-use-threshold=32
+Executable BenchFixPlayFen
+  Main-is:	Tests/TestFixPlayFen.hs
+  Build-depends:	base >= 4, array, mtl, parsec, criterion
+  GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=24 -funfolding-use-threshold=32
 
 Executable BenchTransTab
   Main-is:	Tests/TestTransTab.hs
