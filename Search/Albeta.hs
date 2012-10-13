@@ -67,20 +67,22 @@ lmrMinDFRes = 8		-- minimum depth for full research when failed high in null win
 lmrMinDRed  = 2		-- minimum reduced depth
 lmrMaxDepth = 15
 lmrMaxWidth = 63
-lmrPv, lmrRest :: Double
-lmrPv     = 13
-lmrRest   = 8
--- LMR parameter optimisation (lmrPv, lmrRest):
--- lm1 = 2, 1	-> elo -127 +- 58
--- lm2 = 3, 2	-> elo  -14 +- 52
--- lm3 = 5, 3	-> elo   17 +- 55
--- lm4 = 8, 5	-> elo   32 +- 53
--- lm5 = 13, 8	-> elo   92 +- 54 --> this is it
+lmrPvLog, lmrReLog :: Double
+lmrPvLog  = 0.6
+lmrReLog  = 0.8
+lmrPvLin, lmrReLin :: Double
+lmrPvLin  = 0.070
+lmrReLin  = 0.105
+-- LMR log parameter optimisation (lmrPvLog, lmrReLog):
+-- lmlog1 = 0.3, 0.8
+-- lmlog2 = 0.4, 0.8
+-- lmlog3 = 0.5, 0.8
+-- lmlog4 = 0.6, 0.8
 lmrReducePv, lmrReduceArr :: UArray (Int, Int) Int
 lmrReducePv  = array ((1, 1), (lmrMaxDepth, lmrMaxWidth))
-    [((i, j), ceiling $ logrd i j lmrPv) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
+    [((i, j), lmrpv i j) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
 lmrReduceArr = array ((1, 1), (lmrMaxDepth, lmrMaxWidth))
-    [((i, j), ceiling $ logrd i j lmrRest) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
+    [((i, j), lmrre i j) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
 
 logrd :: Int -> Int -> Double -> Double
 -- logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
@@ -94,9 +96,9 @@ maxFutilDepth :: Int
 maxFutilDepth = 3
 futilMargins :: UArray Int Int
 -- futilMargins = array (1, 3) [ (1, 450), (2, 800), (3, 1500) ]	-- F0
--- futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
+futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
 -- futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
-futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
+-- futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
 
 -- Parameters for quiescent search:
 qsBetaCut, qsDeltaCut :: Bool
@@ -109,7 +111,7 @@ qsMaxChess = 2		-- max number of chess for a quiet search path
 nulActivate :: Bool
 nulActivate = True		-- activate null move reduction
 nulRedux, nulMoves :: Int
-nulRedux    = 2 -- depth reduction for null move
+nulRedux    = 3 -- depth reduction for null move
 nulMoves    = 2	-- how many null moves in sequence are allowed (one or two)
 nulMargin, nulSubmrg :: Int
 nulMargin   = 1		-- margin to search the null move (over beta) (in scoreGrain units!)
@@ -723,24 +725,28 @@ pvInnerLoop b d prune nst e = do
        then return (True, nst)
        else do
          old <- get
-         pindent $ "-> " ++ show e
-         exd <- {-# SCC "newNode" #-} lift $ doEdge e False	-- do the move
-         nn <- newNode
-         viztreeDown nn e
-         modify $ \s -> s { absdp = absdp s + 1 }
-         s <- case exd of
-                Exten exd' -> do
-                    let speci = special e
-                    if prune && not speci && exd' == 0	-- don't prune special or extended
-                       then return $! onlyScore $! cursc nst	-- prune, return a
-                       else pvInnerLoopExten b d speci exd' nst
-                Final sco  -> return $! pathFromScore "Final" (-sco)
-         lift $ undoEdge	-- undo the move
-         viztreeUp nn e (pathScore s)
-         modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
-         -- s' <- checkPath nst d "cpl 8" $ addToPath e (pnextlev s)
-         s' <- checkPath nst d "cpl 8" $ addToPath e s
-         pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+         let speci = special e
+         -- In this version we prune without to do the move (test)
+         -- Pro: faster
+         -- Conta: we cannot see if it was extended or a check move
+         --        we don't see the move in viztree at all!
+         s' <- if prune && not speci	-- what about extended?
+                  then return $! onlyScore $! cursc nst	-- prune, return a
+                  else do
+                      pindent $ "-> " ++ show e
+                      exd <- {-# SCC "newNode" #-} lift $ doEdge e False	-- do the move
+                      nn <- newNode
+                      viztreeDown nn e
+                      modify $ \s -> s { absdp = absdp s + 1 }
+                      s <- case exd of
+                             Exten exd' -> pvInnerLoopExten b d speci exd' nst
+                             Final sco  -> return $! pathFromScore "Final" (-sco)
+                      lift $ undoEdge	-- undo the move
+                      viztreeUp nn e (pathScore s)
+                      modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
+                      s' <- checkPath nst d "cpl 8" $ addToPath e s
+                      pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+                      return s'
          checkFailOrPVLoop (stats old) b d e s' nst
 
 reserveExtension :: Node m => Int -> Int -> Search m Int
@@ -1142,6 +1148,7 @@ bestFirst path kl (es1, es2)
     | otherwise = e : delete e es1 ++ kl ++ delall es2 (e : kl)
     where delall = foldr delete
           (e:_)  = path
+{-# SPECIALIZE bestFirst :: [Move] -> [Move] -> ([Move], [Move]) -> [Move] #-}
 
 pushKiller :: Move -> Int -> Killer -> Killer
 pushKiller !e s NoKiller = OneKiller e s

@@ -643,7 +643,9 @@ alternateMoves p m1 m2
 
 legalMove :: MyPos -> Move -> Bool
 legalMove p m
-    | Busy col fig <- tabla p src = moving p == col && canMove fig p src dst
+    | Busy col fig <- tabla p src = moving p == col
+                                 && not (myPieces p col `testBit` dst)
+                                 && canMove fig p src dst
     | otherwise = False
     where src = fromSquare m
           dst = toSquare m
