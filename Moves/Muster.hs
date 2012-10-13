@@ -2,11 +2,13 @@ module Moves.Muster (
         genArray,
         row1,  row2,  row3,  row4,  row5,  row6,  row7,  row8,
         fileA, fileB, fileC, fileD, fileE, fileF, fileG, fileH,
+        rowBB, colBB,
         rookFiles, lightSquares, darkSquares
     ) where
 
 import Data.Word
 import Data.Bits
+import Data.Array.Unboxed
 
 import Struct.Struct
 
@@ -32,6 +34,15 @@ rookFiles = fileA .|. fileH
 
 lightSquares = 0xAA55AA55AA55AA55 :: BBoard
 darkSquares  = 0x55AA55AA55AA55AA :: BBoard
+
+-- Arrays of rows and files
+rowArray, fileArray :: UArray Int BBoard
+rowArray  = listArray (0, 7) [row1,  row2,  row3,  row4,  row5,  row6,  row7,  row8]
+fileArray = listArray (0, 7) [fileA, fileB, fileC, fileD, fileE, fileF, fileG, fileH]
+
+rowBB, colBB :: Int -> BBoard
+rowBB = (!) rowArray
+colBB = (!) fileArray
 
 left  = flip shiftR 1 . (.&.) (complement fileA)
 right = flip shiftL 1 . (.&.) (complement fileH)
