@@ -8,6 +8,7 @@ import qualified Text.ParserCombinators.Parsec as P
 import Text.ParserCombinators.Parsec ((<|>))
 
 import Struct.Struct
+import Moves.Moves
 import Moves.Board
 
 {--
@@ -34,16 +35,23 @@ cap x y z t = fromIntegral $ (x' .|. shiftR y' 1 .|. shiftR z' 2 .|. shiftR t' 3
 
 toNiceNotation :: MyPos -> Move -> String
 toNiceNotation p m = piece ++ src ++ capt ++ dst ++ transf ++ check
-    where s = fromSquare m
+    where piece = pcToCh fig
+          s = fromSquare m
           d = toSquare m
           (sr, sc) = s `divMod` 8
           (dr, dc) = d `divMod` 8
           (fig, fcol) | Busy c f <- tabla p s = (f, c)
-          piece = pcToCh fig
           capt | Busy _ _ <- tabla p d = "x"
                | otherwise             = ""
-          src = col sc : col sr : ""	-- should be conditional
-          dst = col dc : col dr : ""
+          att = fAttacs d fig (occup p)
+          our = if fcol == White then white p else black p
+          src | fig == Pawn = col sc : ""
+              | fig == King = ""
+              | fig == Knight = desamb (knights p)
+              | fig == Bishop = desamb (bishops p)
+              | fig == Rook   = desamb (rooks p)
+              | fig == Queen  = desamb (queens p)
+          dst = col dc : row dr : ""
           transf = if moveIsTransf m then pcToCh (moveTransfPiece m) : [] else []
           p' = doFromToMove m p
           check = if inCheck p' then "+" else ""
@@ -57,17 +65,41 @@ toNiceNotation p m = piece ++ src ++ capt ++ dst ++ transf ++ check
           pcToCh Bishop = "B"
           pcToCh Knight = "N"
           pcToCh _      = ""
+          desamb b
+              | popCount1 b0 == 1 = ""
+              | popCount1 (b0 .&. colBB sc) == 1 = col sc : ""
+              | popCount1 (b0 .&. rowBB sr) == 1 = row sr : ""
+              | otherwise         = col sc : row sr : ""
+              where b0 = b .&. att .&. our
 
 data SrcDest = SDCol Int | SDRow Int | SDColRow Int Int
 
 fromNiceNotation :: MyPos -> Color -> P.Parser Move
 fromNiceNotation p c = do
     piece <- parsePiece
-    src   <- parseSrcDst
-    capt  <- parseCapt
-    dst   <- parseSrcDest <|> return src
-    tra   <- parseTransf
-    chk   <- parseCheck
+    srcc  <- parseSrcOrCapt
+    (msrc, capt, dst) <- case srcc of
+        Left src -> do
+            capt <- parseCapt
+            if capt
+               then do
+                   dst  <- parseSrcDst
+                   return (Just src, capt, dst)
+               else do
+                   mdst <- parseSrcDst >>= return . Just <|> return Nothing
+                   case mdst of
+                       Just dst -> return (Just src, capt, dst)
+                       Nothing  -> return (Nothing,  capt, src)
+        Right capt -> do
+            dst <- parseSrcDst
+            return (Nothing, capt, dst)
+    tra <- parseTransf
+    chk <- parseCheck
+    case msrc of
+        Just (SDCol x) ->
+        Just (SDRow y) ->
+        Just (SDColRow x y) ->
+        Nothing        ->
     let m = moveFromTo ...
     
 parsePiece = parseFigure <|> return Pawn
@@ -80,11 +112,16 @@ chToPc 'R' = Rook
 chToPc 'B' = Bishop
 chToPc 'N' = Knight
 
+parseSrcOrCapt = P.char 'x' >> return (Right True)
+             <|> parseSrcDst >>= return . Left
+
 parseCapt = P.char 'x' >> return True <|> return False
 
 parseSrcDst = parseRow <|> parseColRow
 
-parseRow = P.oneOf "abcdefgh" >>= return . SDRow . (subtract $ ord 'a')
+parseCol = P.oneOf "abcdefgh" >>= return . SDCol . (subtract $ ord 'a')
+
+parseRow = P.oneOf "12345678" >>= return . SDRow . (subtract $ ord '1')
 
 parseColRow = do
     col@(SDCol c) <- parseCol
