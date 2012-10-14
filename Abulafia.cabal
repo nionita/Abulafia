@@ -64,7 +64,7 @@ Executable FixPlayFen
                -funfolding-use-threshold=32
                -- -fext-core
   if flag(profile)
-    GHC-Options: -auto-all
+    GHC-Options: -fprof-auto-top
 
 Executable BenchFixPlayFen
   Main-is:	Tests/TestFixPlayFen.hs
