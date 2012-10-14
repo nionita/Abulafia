@@ -68,8 +68,8 @@ lmrMinDRed  = 2		-- minimum reduced depth
 lmrMaxDepth = 15
 lmrMaxWidth = 63
 lmrPvLog, lmrReLog :: Double
-lmrPvLog  = 0.3
-lmrReLog  = 0.8
+lmrPvLog  = 3
+lmrReLog  = 2
 -- LMR log parameter optimisation (lmrPvLog, lmrReLog):
 -- lmlog1 = 0.3, 0.8	-18 +/-60	-- looks best (but only 100 games)
 -- lmlog2 = 0.4, 0.8	-23 +/-57
@@ -88,9 +88,9 @@ lmrReLin  = 0.110
 -- lmadd6 = 0.100, 0.110
 lmrReducePv, lmrReduceArr :: UArray (Int, Int) Int
 lmrReducePv  = array ((1, 1), (lmrMaxDepth, lmrMaxWidth))
-    [((i, j), lmrpv i j) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
+    [((i, j), floor $ logrd i j lmrPvLog) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
 lmrReduceArr = array ((1, 1), (lmrMaxDepth, lmrMaxWidth))
-    [((i, j), lmrre i j) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
+    [((i, j), floor $ logrd i j lmrReLog) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
 
 logrd :: Int -> Int -> Double -> Double
 -- logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
