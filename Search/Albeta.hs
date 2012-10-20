@@ -11,6 +11,7 @@ module Search.Albeta (
 import Control.Monad
 import Data.Bits ((.&.))
 import Data.List (delete, sortBy)
+import Data.Ix
 import Data.Ord (comparing)
 import Data.Array.Base
 import Data.Array.Unboxed
@@ -92,11 +93,16 @@ futilActive = True
 
 maxFutilDepth :: Int
 maxFutilDepth = 3
-futilMargins :: UArray Int Int
+-- futilMargins :: UArray Int Int
 -- futilMargins = array (1, 3) [ (1, 450), (2, 800), (3, 1500) ]	-- F0
 -- futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
 -- futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
-futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
+-- futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
+futilMargins :: Int -> Int
+futilMargins d
+    | d == 1    = 75
+    | d == 2    = 150
+    | otherwise = 300
 
 -- Parameters for quiescent search:
 qsBetaCut, qsDeltaCut :: Bool
@@ -163,13 +169,13 @@ data PVReadOnly
 
 data PVState
     = PVState {
-          ronly :: PVReadOnly,	-- read only parameters
+          ronly :: !PVReadOnly,	-- read only parameters
           draft :: !Int,	-- root search depth
           absdp :: !Int,	-- absolute depth (root = 0)
           usedext :: !Int,	-- used extension
           abort :: !Bool,	-- search aborted (time)
           short :: !Bool,	-- for check path (shorter than depth in pv)
-          stats :: SStats	-- search statistics
+          stats :: !SStats	-- search statistics
       } deriving Show
 
 -- This is a state which reflects the status of alpha beta in a node while going through the edges
@@ -177,10 +183,10 @@ data NodeState
     = NSt {
           ownnt :: !NodeType,	-- expected node type
           forpv :: !Bool,	-- still searching for PV?
-          cursc :: Path,	-- current alpha value (now plus path & depth)
+          cursc :: !Path,	-- current alpha value (now plus path & depth)
           movno :: !Int,	-- current move number
           pvsl  :: [Pvsl],	-- principal variation list (at root) with node statistics
-          killer :: Killer, -- the current killer moves
+          killer :: !Killer,	-- the current killer moves
           pvcont :: Seq Move	-- a pv continuation from the previous iteration, if available
       } deriving Show
 
@@ -453,8 +459,7 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
         !pvs = forpv nst
         !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for the next search
         reduce = lmrActive && not (tact || inPv || spec || exd > 0 || d1 < lmrMinDRed)
-        -- (!d', reduced) = nextDepth (d+exd') (movno nst) reduce (forpv nst && a < b - 1)
-        (d', reduced) = reduceDepth d1 mn reduce pvs
+        d' = reduceDepth d1 mn reduce pvs
         !pvpath_ = pvcont nst
     pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
               ++ " exd' = " ++ show exd'
@@ -498,8 +503,8 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
                  viztreeReSe
                  -- Try: no null move in re-search
                  let nst' = nst { forpv = True }
-                 if reduced 	-- && d > 1
-                    then do	-- re-search with no reduce for root moves
+                 if d' < d1	-- did we search with reduced depth?
+                    then do	-- yes: re-search with normal depth
                       viztreeABD (pathScore $ aGrain) (pathScore $ -a) d1
                       s2 <- {-# SCC "nullWinResRootDD" #-} pvSearch nst aGrain (-a) d1 pvpath 0
                          >>= return . pnextlev             >>= checkPath nst d1 "cpl 12"
@@ -684,8 +689,8 @@ pvSearch nst !a !b !d lastpath lastnull = do
                          -- as this is a dummy move stored
                          lift $ {-# SCC "hashStore" #-}
                                 store de typ (pathScore s) (head es) deltan
-                     checkPath nst d "cpl 6a" $! onlyScore s	-- why??
-                     -- return $! combinePath s a
+                     -- checkPath nst d "cpl 6a" $! onlyScore s	-- why??
+                     checkPath nst d "cpl 6a" $! combinePath s a
 
 nullEdgeFailsHigh :: Node m => NodeState -> Path -> Int -> Int -> Search m Bool
 nullEdgeFailsHigh nst b d lastnull
@@ -731,11 +736,14 @@ pvInnerLoop b d prune nst e = do
          s <- case exd of
                 Exten exd' -> do
                     let speci = special e
-                    if prune && not speci && exd' == 0	-- don't prune special or extended
+                    -- if prune && exd' == 0 && not speci && not (forpv nst) -- don't prune special or extended
+                    -- if not (forpv nst) && prune && exd' == 0 && not speci -- don't prune special or extended
+                    -- if not (forpv nst) && prune && exd' == 0 && not speci -- don't prune special or extended
+                    if prune && exd' == 0 && not speci -- don't prune special or extended
                        then return $! onlyScore $! cursc nst	-- prune, return a
                        else pvInnerLoopExten b d speci exd' nst
                 Final sco  -> return $! pathFromScore "Final" (-sco)
-         lift $ undoEdge	-- undo the move
+         lift undoEdge	-- undo the move
          viztreeUp nn e (pathScore s)
          modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
          -- s' <- checkPath nst d "cpl 8" $ addToPath e (pnextlev s)
@@ -764,7 +772,7 @@ pvInnerLoopExten b d spec exd nst = do
         a = cursc nst
         !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for next search
         reduce = lmrActive && not (tact || inPv || pnearmate a || spec || exd > 0 || d1 < lmrMinDRed)
-        (d', reduced) = reduceDepth d1 mn reduce pvs
+        d' = reduceDepth d1 mn reduce pvs
         !pvpath_ = pvcont nst
     pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
               ++ " exd' = " ++ show exd'
@@ -812,8 +820,8 @@ pvInnerLoopExten b d spec exd nst = do
                      viztreeReSe
                      -- Try: no null move in re-search
                      let nst' = nst { forpv = True }
-                     if reduced		-- && (d >= lmrMinDFRes || d >= 1 && inPv)
-                        then do	-- re-search with no reduce (expensive!)
+                     if d' < d1	-- did we search with reduced depth?
+                        then do	-- yes: re-search with with normal depth
                             viztreeABD (pathScore aGrain) (pathScore $ -a) d1
                             !s2 <- pvSearch nst aGrain (-a) d1 pvpath 0
                                        >>= return . pnextlev >>= checkPath nst d1 "cpl 9a"
@@ -895,16 +903,38 @@ genAndSort lastpath kill d pv = do
     where pv' = pv || not (nullSeq lastpath)
 
 -- Late Move Reduction
--- {-# INLINE nextDepth #-}
-reduceDepth :: Int -> Int -> Bool -> Bool -> (Int, Bool)
+-- This part (including lmrIndex) seems well optimized
+reduceDepth :: Int -> Int -> Bool -> Bool -> Int
 reduceDepth d w lmr pvs
-    | lmr       = (m0d, reduced)
-    | otherwise = (d, False)	-- not reduced
-    where !m0d = max 0 nd
-          !reduced = m0d < d
+    | not lmr   = d
+    | otherwise = m0d
+    where m0d = max 0 nd
           nd = d - k
-          k  = if pvs then lmrReducePv ! idx else lmrReduceArr ! idx
-          idx = (min lmrMaxDepth $ max 1 d, min lmrMaxWidth $ max 1 w)
+          k  = if pvs then lmrReducePv  `unsafeAt` lmrIndex d w
+                      else lmrReduceArr `unsafeAt` lmrIndex d w
+
+-- Here we know the index is correct, but unsafeIndex (from Data.Ix)
+-- is unfortunately not exported...
+-- The trick: define an UnsafeIx class to calculate direct unsafeIndex
+lmrIndex :: Int -> Int -> Int
+lmrIndex d w = unsafeIndex ((1, 1), (lmrMaxDepth, lmrMaxWidth)) (d1, w1)
+    where d1 = min lmrMaxDepth $ max 1 d
+          w1 = min lmrMaxWidth $ max 1 w
+
+-- The UnsafeIx inspired from GHC.Arr (class Ix)
+class Ord a => UnsafeIx a where
+    unsafeIndex :: (a, a) -> a -> Int
+    unsafeRangeSize :: (a, a) -> Int
+    unsafeRangeSize b@(_, h) = unsafeIndex b h + 1
+
+instance UnsafeIx Int where
+    {-# INLINE unsafeIndex #-}
+    unsafeIndex (m, _) i = i - m
+
+instance (UnsafeIx a, UnsafeIx b) => UnsafeIx (a, b) where -- as derived
+    {-# SPECIALISE instance UnsafeIx (Int,Int) #-}
+    {-# INLINE unsafeIndex #-}
+    unsafeIndex ((l1,l2),(u1,u2)) (i1,i2) = unsafeIndex (l1,u1) i1 * unsafeRangeSize (l2,u2) + unsafeIndex (l2,u2) i2
 
 -- This is a kind of monadic fold optimized for (beta) cut
 -- {-# INLINE pvLoop #-}
@@ -921,7 +951,8 @@ isPruneFutil d a
     | otherwise = do
         tact <- lift tactical
         if tact then return False else do
-            let !margin = futilMargins ! d
+            -- let !margin = futilMargins ! d
+            let !margin = futilMargins d
                 a' = pathScore a
             v <- lift staticVal	-- E1
             -- v <- lift materVal	-- can we do here direct static evaluation?

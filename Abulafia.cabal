@@ -91,6 +91,7 @@ Executable Abulafia
                -funbox-strict-fields -threaded -rtsopts
                -fspec-constr-count=24
                -funfolding-use-threshold=32
+               -ddump-simpl -ddump-to-file -dsuppress-all -dsuppress-uniques
   if flag(profile)
     C-sources: Cbits/rts_hooksp.c
     -- GHC-Options: -auto-all
