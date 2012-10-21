@@ -2,9 +2,11 @@
 
 module Search.SearchMonad (
     STPlus,
-    return, (>>=),
-    get, put, gets, modify,
-    lift, liftIO,
+    -- return, (>>=),
+    get, put,
+    gets, modify,
+    lift,
+    -- liftIO,
     runSearch, execSearch
     ) where
 
@@ -17,8 +19,8 @@ newtype STPlus r s m a = STPlus { runSTPlus :: s -> (a -> s -> m r) -> m r }
 instance Monad (STPlus r s m) where
     return a = STPlus $ \s k -> k a s
     {-# INLINE return #-}
-    -- c >>= f  = STPlus $ \s0 k -> runSTPlus c s0 $ \a s1 -> case f a of fa -> runSTPlus fa s1 k
-    c >>= f  = STPlus $ \s0 k -> runSTPlus c s0 $ \a s1 -> runSTPlus (f a) s1 k
+    c >>= f  = STPlus $ \s0 k -> runSTPlus c s0 $ \a s1 -> case f a of fa -> runSTPlus fa s1 k
+    -- c >>= f  = STPlus $ \s0 k -> runSTPlus c s0 $ \a s1 -> runSTPlus (f a) s1 k
     {-# INLINE (>>=) #-}
 
 instance MonadState s (STPlus r s m) where

@@ -11,7 +11,7 @@ module Search.Albeta (
 import Control.Monad
 import Data.Bits ((.&.))
 import Data.List (delete, sortBy)
-import Data.Ix
+-- import Data.Ix
 import Data.Ord (comparing)
 import Data.Array.Base
 import Data.Array.Unboxed
@@ -84,7 +84,6 @@ lmrReduceArr = array ((1, 1), (lmrMaxDepth, lmrMaxWidth))
     [((i, j), ceiling $ logrd i j lmrRest) | i <- [1..lmrMaxDepth], j <- [1..lmrMaxWidth]]
 
 logrd :: Int -> Int -> Double -> Double
--- logrd i j f = 1 + log (fromIntegral i) * log (fromIntegral j) / f
 logrd i j f = log (fromIntegral i) * log (fromIntegral j) / f
 
 -- Parameters for futility pruning:
@@ -98,11 +97,16 @@ maxFutilDepth = 3
 -- futilMargins = array (1, 3) [ (1, 325), (2, 550), (3, 900) ]	-- F1
 -- futilMargins = array (1, 3) [ (1, 125), (2, 350), (3, 500) ]	-- F2
 -- futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
+
+-- This is a linear formula for futility margin
+-- Should apply from 1 to maxFutilDepth (checked elsewehere)
+futilMs = 75	-- margin for depth 1
+futilMv = 150	-- suplementary margin for every further depth
 futilMargins :: Int -> Int
-futilMargins d
-    | d == 1    = 325	-- 75
-    | d == 2    = 550	-- 150
-    | otherwise = 900	-- 300
+futilMargins d = futilMs - futilMv + d*futilMv
+    -- | d == 1    = 75
+    -- | d == 2    = 150
+    -- | otherwise = 300
 
 -- Parameters for quiescent search:
 qsBetaCut, qsDeltaCut :: Bool
@@ -752,12 +756,11 @@ pvInnerLoop b d prune nst e = do
          checkFailOrPVLoop (stats old) b d e s' nst
 
 reserveExtension :: Node m => Int -> Int -> Search m Int
-reserveExtension !uex !exd = do
-    if uex >= maxDepthExt || exd == 0
-       then return 0
-       else do
-            modify $ \s -> s { usedext = usedext s + exd }
-            return exd
+reserveExtension !uex !exd
+    | uex >= maxDepthExt || exd == 0 = return 0
+    | otherwise = do
+        modify $ \s -> s { usedext = usedext s + exd }
+        return exd
 
 pvInnerLoopExten :: Node m => Path -> Int -> Bool -> Int -> NodeState
                  -> Search m Path
@@ -952,12 +955,13 @@ isPruneFutil d a
         tact <- lift tactical
         if tact then return False else do
             -- let !margin = futilMargins ! d
-            let !margin = futilMargins d
-                a' = pathScore a
             v <- lift staticVal	-- E1
             -- v <- lift materVal	-- can we do here direct static evaluation?
             -- v <- pvQSearch a' b' 0	-- E2
-            if v < a' && v + margin <= a'
+            let margin = futilMargins d
+                a' = pathScore a
+            -- if v < a' && v + margin <= a'
+            if v + margin <= a'
                then return True
                else return False
 
