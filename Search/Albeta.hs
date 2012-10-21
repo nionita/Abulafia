@@ -100,9 +100,9 @@ maxFutilDepth = 3
 -- futilMargins = array (1, 3) [ (1, 75), (2, 150), (3, 300) ]	-- F3
 futilMargins :: Int -> Int
 futilMargins d
-    | d == 1    = 75
-    | d == 2    = 150
-    | otherwise = 300
+    | d == 1    = 325	-- 75
+    | d == 2    = 550	-- 150
+    | otherwise = 900	-- 300
 
 -- Parameters for quiescent search:
 qsBetaCut, qsDeltaCut :: Bool
