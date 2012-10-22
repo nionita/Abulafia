@@ -7,7 +7,7 @@ Name:                Abulafia
 -- The package version. See the Haskell package versioning policy
 -- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
 -- standards guiding when and how versions should be incremented.
-Version:             0.61
+Version:             0.62
 
 -- A short (one-line) description of the package.
 Synopsis:            Chess engine
@@ -91,8 +91,8 @@ Executable Abulafia
                -funbox-strict-fields -threaded -rtsopts
                -fspec-constr-count=24
                -funfolding-use-threshold=32
-               -ddump-simpl -ddump-to-file -dsuppress-all -dsuppress-uniques
-               -ddump-cmm
+               -- -ddump-simpl -ddump-to-file -dsuppress-all -dsuppress-uniques
+               -- -ddump-cmm
   if flag(profile)
     C-sources: Cbits/rts_hooksp.c
     -- GHC-Options: -auto-all

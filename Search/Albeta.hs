@@ -48,7 +48,7 @@ useAspirWin = True
 timeNodes, scoreGrain, depthForCM, minToStore, minToRetr, maxDepthExt, negHistMNo :: Int
 pathGrain :: Path
 useNegHist, useTTinPv :: Bool
-timeNodes   = 2048 - 1	-- check time every so many nodes
+timeNodes   = 2^12 - 1	-- check time every so many nodes
 scoreGrain  = 4	-- score granularity
 pathGrain   = fromIntegral scoreGrain	-- path Granularity
 depthForCM  = 7 -- from this depth inform current move
@@ -63,8 +63,7 @@ useTTinPv   = False	-- retrieve from TT in PV?
 lmrActive :: Bool
 lmrActive   = True
 
-lmrMinDFRes, lmrMinDRed, lmrMaxDepth, lmrMaxWidth :: Int
-lmrMinDFRes = 8		-- minimum depth for full research when failed high in null window
+lmrMinDRed, lmrMaxDepth, lmrMaxWidth :: Int
 lmrMinDRed  = 2		-- minimum reduced depth
 lmrMaxDepth = 15
 lmrMaxWidth = 63
@@ -300,9 +299,8 @@ alphaBeta abc = {-# SCC "alphaBeta" #-} do
         rmvs = Alt $ rootmvs abc
         lpv  = Seq $ lastpv abc
         searchReduced a b = pvRootSearch a      b     d lpv rmvs True
-        -- searchLow       b = pvRootSearch alpha0 b     d lpv rmvs True
-        -- searchHigh    a   = pvRootSearch a      beta0 d lpv rmvs True
-        searchFull        = pvRootSearch alpha0 beta0 d lpv rmvs False	-- ???
+        -- We have lastpath as a parameter here (can change after fail low or high)
+        searchFull    lp  = pvRootSearch alpha0 beta0 d lp  rmvs False
         pvro = PVReadOnly { albest = best abc, timeli = stoptime abc /= 0, abmili = stoptime abc }
         pvs0 = pvsInit { ronly = pvro } :: PVState
     r <- if useAspirWin
@@ -319,9 +317,11 @@ alphaBeta abc = {-# SCC "alphaBeta" #-} do
                          runSearch (searchReduced alpha1 beta1) pvs0
                 if abort pvsf || (s1 > alpha1 && s1 < beta1 && not (nullSeq es1))
                     then return r1
-                    else {-# SCC "alphaBetaSearchFullRe" #-} runSearch searchFull pvs0
-             Nothing -> {-# SCC "alphaBetaSearchFullIn" #-} runSearch searchFull pvs0
-         else {-# SCC "alphaBetaSearchFull" #-} runSearch searchFull pvs0
+                    else {-# SCC "alphaBetaSearchFullRe" #-} if nullSeq es1
+                        then runSearch (searchFull lpv) pvs0
+                        else runSearch (searchFull es1) pvs0
+             Nothing -> {-# SCC "alphaBetaSearchFullIn" #-} runSearch (searchFull lpv) pvs0
+         else {-# SCC "alphaBetaSearchFull" #-} runSearch (searchFull lpv) pvs0
     -- when aborted, return the last found good move
     -- we have to trust that abort is never done in draft 1!
     if abort (snd r)

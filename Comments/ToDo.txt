@@ -1,4 +1,37 @@
 Todo list for Abulafia:
+=======================
 - SEE should be used only in QS to prune losing moves
 - Statistics for search should be activated only when "debugging" (cpp + ifdef)
 - Move list module for better performance (memory cache)
+
+For 0.62:
+=========
+- How does the history look? Tool to see some probes
+- For exception (error) in search thread: restart (with old status as start)
+- Collect error positions and analyse
++ lmrMinDFRes not used anymore
+- Read-only values (RO):
+        - on tree level (ROT): all from PVReadonly (albest, timeli, abmili) + draft
+        - on node level (RON): (from PVState:) absdp, usedext, ownnt (must be always initialised before a deeper search)
+- Variable values (RW):
+        - on tree level (RWT): abort, short, stats
+        - on node level (RWN): all of NodeState except ownnt
+- forpv has no meaning when a=b-1! Can we get it out? Could be a RON?
+- Separate again in PV search and scout
++ timeNodes: raise on (4096-1) ~ every 80 ms
+- scoreGrain should be in a common constants module
+- What is the correct maximal depth extension (maxDepthExt)? 2 or 3?
+- LMR Parameter not ok (13 and 8: almost nothing is reduced!)
+- Futility Parameter should optimised (some statistic?) Shouldn't they be dependent on game phase?
+- Experiment with futility: increasing margins with the draft
+- Clean older comments
+- For further speed optimisation: Changes which shape the tree different cannot be compared against each other!
+- Root moves order: is this enough? Exact scores should be considered where available
+- In checkFailOrPVRoot and checkFailOrPVLoop: missing a nextNodeType in case s<=a?
++ In alphaBeta: when beta cut (aspiration): set cut move ahead the root move list for research (+ pvcont!)
++ Same for failed low: new pvcont is longer
+- Make search monad a direct reader/state monad (new reader parameter + ask and asks)
+- Better Name for Search monad
+- In pv…Exten: tact and inPv are not necessary when no lmr, simplify and optimize the conditions (order)
+- (-a-1) and (-a) could be computed only once...
+- At the end: some stricts (!) are perhaps not necessary
