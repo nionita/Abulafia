@@ -12,7 +12,7 @@ module Moves.Base (
     useHash,
     staticVal0, mateScore,
     showMyPos,
-    nextlev, nearmate, special
+    nearmate, special
 ) where
 
 import Data.Array.IArray
@@ -35,10 +35,6 @@ import Moves.SEE
 import Eval.Eval
 import Moves.ShowMe
 import Moves.History
-
-{-# INLINE nextlev #-}
-nextlev :: Int -> Int
-nextlev = negate
 
 {-# INLINE nearmate #-}
 nearmate :: Int -> Bool

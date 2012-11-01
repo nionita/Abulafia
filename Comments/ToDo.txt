@@ -22,7 +22,7 @@ For 0.62:
 - scoreGrain should be in a common constants module
 - What is the correct maximal depth extension (maxDepthExt)? 2 or 3?
 - LMR Parameter not ok (13 and 8: almost nothing is reduced!)
-- Futility Parameter should optimised (some statistic?) Shouldn't they be dependent on game phase?
+- Futility Parameter should be optimised (some statistic?) Shouldn't they be dependent on game phase?
 - Experiment with futility: increasing margins with the draft
 - Clean older comments
 - For further speed optimisation: Changes which shape the tree different cannot be compared against each other!

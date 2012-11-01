@@ -444,7 +444,6 @@ pvInnerRoot b d nst e = do
          lift $ undoEdge
          viztreeUp nn e (pathScore s)
          modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
-         -- s' <- checkPath nst d "cpl 1" $ addToPath e (pnextlev s)
          s' <- checkPath nst d "cpl 1" $ addToPath e s
          pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
          -- lift $ informStr $ "<- " ++ show e ++ " (" ++ show (pathScore s)
@@ -642,12 +641,11 @@ pvSearch _ !a !b !d _ _ | d <= 0 = do
                   else mustQSearch (pathScore a) (pathScore b)
     when (minToStore == 0 && ns > 0)
         $ lift $ {-# SCC "hashStore" #-} store 0 2 v (Move 0) ns
-    -- let !v' = if v <= a then a else if v > b then b else v
     let !esc = pathFromScore ("pvQSearch 1:" ++ show v) v
     pindent $ "<> " ++ show esc
     -- check d esc "cpl 4"
     return esc
-pvSearch !nst !a !b !d lastpath lastnull = do
+pvSearch nst !a b d lastpath lastnull = do
     pindent $ "=> " ++ show a ++ ", " ++ show b
     nmhigh <- if not nulActivate || lastnull < 1 || ownnt nst == PVNode
                  then return False
@@ -655,16 +653,15 @@ pvSearch !nst !a !b !d lastpath lastnull = do
     abrt <- gets abort
     if abrt || nmhigh
        then do
-         let s = onlyScore b
+         let !s = onlyScore b
          pindent $ "<= " ++ show s
          return s
-       -- then return $! onlyScore b
        else do
          edges <- genAndSort lastpath (killer nst) d (forpv nst)	-- here: (ownnt nst /= AllNode)
          if noMove edges
             then do
               v <- lift staticVal
-              let s = pathFromScore ("static: " ++ show v) v
+              let !s = pathFromScore ("static: " ++ show v) v
               pindent $ "<= " ++ show s
               return s
             else do
@@ -676,7 +673,7 @@ pvSearch !nst !a !b !d lastpath lastnull = do
               prune <- if not futilActive || ownnt nst == PVNode
                           then return False
                           else isPruneFutil d a
-              nstf <- pvLoop (pvInnerLoop b d prune) nsti edges
+              nstf <- pvSLoop b d prune nsti edges
               let s = cursc nstf
               pindent $ "<= " ++ show s
               abrt' <- gets abort
@@ -708,13 +705,22 @@ nullEdgeFailsHigh nst b d lastnull
                nn <- newNode
                viztreeDown0 nn
                viztreeABD (pathScore $ -nmb) (pathScore $ -nmb + nulMarPath) d1
-               val <- liftM negate $ pvSearch nst (-nmb) (-nmb + nulMarPath) d1 emptySeq lastnull1
+               -- val <- liftM negate $ pvSearch nst (-nmb) (-nmb + nulMarPath) d1 emptySeq lastnull1
+               val <- liftM pnextlev $ pvSearch nst (-nmb) (-nmb + nulMarPath) d1 emptySeq lastnull1
                lift undoEdge	-- undo null move
                viztreeUp0 nn (pathScore val)
                return $! val >= nmb
-    where !d1  = d - 1 - nulRedux
+    where d1  = d - (1 + nulRedux)
           !nmb = if nulSubAct then b - nulSubPath else b
-          !lastnull1 = lastnull - 1
+          lastnull1 = lastnull - 1
+
+pvSLoop :: Node m => Path -> Int -> Bool -> NodeState -> Alt Move -> Search m NodeState
+pvSLoop b d p s es = go s es
+    where go s (Alt []) = return s
+          go s (Alt (e:es)) = do
+              (cut, s') <- pvInnerLoop b d p s e
+              if cut then return s'
+                     else go s' $ Alt es
 
 -- This is the inner loop of the PV search, executed at every level (except root) once per possible move
 -- See the parameter
@@ -740,9 +746,7 @@ pvInnerLoop b d prune nst e = do
          s <- case exd of
                 Exten exd' -> do
                     let speci = special e
-                    -- if prune && exd' == 0 && not speci && not (forpv nst) -- don't prune special or extended
-                    -- if not (forpv nst) && prune && exd' == 0 && not speci -- don't prune special or extended
-                    -- if not (forpv nst) && prune && exd' == 0 && not speci -- don't prune special or extended
+                    -- if prune && exd' == 0 && not speci && not (forpv nst)
                     if prune && exd' == 0 && not speci -- don't prune special or extended
                        then return $! onlyScore $! cursc nst	-- prune, return a
                        else pvInnerLoopExten b d speci exd' nst
@@ -750,7 +754,6 @@ pvInnerLoop b d prune nst e = do
          lift undoEdge	-- undo the move
          viztreeUp nn e (pathScore s)
          modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
-         -- s' <- checkPath nst d "cpl 8" $ addToPath e (pnextlev s)
          s' <- checkPath nst d "cpl 8" $ addToPath e s
          pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
          checkFailOrPVLoop (stats old) b d e s' nst
@@ -843,7 +846,7 @@ pnearmate :: Path -> Bool
 pnearmate = nearmate . pathScore
 
 pnextlev :: Path -> Path
-pnextlev p = p { pathScore = nextlev (pathScore p) }
+pnextlev p = p { pathScore = - pathScore p }
 
 checkFailOrPVLoop :: Node m => SStats -> Path -> Int -> Move -> Path
                   -> NodeState -> Search m (Bool, NodeState)
@@ -1052,12 +1055,12 @@ pvQInnerLoop !b c !a e = do
          nn <- newNodeQS
          viztreeDown nn e
          !sc <- case r of
-                    Final sc -> return $! nextlev sc
+                    Final sc -> return (-sc)
                     _        -> do
                         modify $ \s -> s { absdp = absdp s + 1 }
                         !s <- pvQSearch (-b) (-a) c
                         modify $ \s -> s { absdp = absdp s - 1 }	-- don't care about usedext here
-                        return $! nextlev s
+                        return (-s)
          lift $ undoEdge
          viztreeUp nn e sc
          -- qindent $ "<- " ++ show e ++ " (" ++ show s ++ ")"
