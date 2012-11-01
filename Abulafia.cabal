@@ -46,6 +46,25 @@ Flag Profile
   Description:	Enables profile support
   Default:	False
 
+Executable Abulafia
+  Main-is:	Main/MainAbulafia.hs
+  Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
+                 random, stream-fusion, directory, transformers
+  GHC-Options: -O2 -Wall
+               -funbox-strict-fields -threaded -rtsopts
+               -fspec-constr-count=24
+               -funfolding-use-threshold=32
+               -ddump-simpl -ddump-to-file -dsuppress-all -dsuppress-uniques
+               -- -ddump-cmm
+  if flag(profile)
+    C-sources: Cbits/rts_hooksp.c
+    -- GHC-Options: -auto-all
+    -- GHC-Options: -auto-all -with-rtsopts="-p -hc -smemop.txt"
+  else
+    -- C-sources: Cbits/rts_hooks.c
+    -- GHC-Options: -with-rtsopts=-N2 -M256m -H128m
+    GHC-Options: -with-rtsopts=-N3
+
 Executable VizGraph
   Main-is:       Main/VizGraph.hs
   Build-depends: base >= 4
@@ -82,25 +101,6 @@ Executable Evolve
   Main-is:	Main/MainEvolve.hs
   Build-depends: base >= 4, process, filepath, bytestring, old-locale
   GHC-Options:	-O2 -Wall -threaded -rtsopts
-
-Executable Abulafia
-  Main-is:	Main/MainAbulafia.hs
-  Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
-                 random, stream-fusion, directory, transformers
-  GHC-Options: -O2 -Wall
-               -funbox-strict-fields -threaded -rtsopts
-               -fspec-constr-count=24
-               -funfolding-use-threshold=32
-               -- -ddump-simpl -ddump-to-file -dsuppress-all -dsuppress-uniques
-               -- -ddump-cmm
-  if flag(profile)
-    C-sources: Cbits/rts_hooksp.c
-    -- GHC-Options: -auto-all
-    -- GHC-Options: -auto-all -with-rtsopts="-p -hc -smemop.txt"
-  else
-    -- C-sources: Cbits/rts_hooks.c
-    -- GHC-Options: -with-rtsopts=-N2 -M256m -H128m
-    GHC-Options: -with-rtsopts=-N3
 
 -- Executable LearnSTS
 --   Main-is:             Tests/LearnSTS.hs

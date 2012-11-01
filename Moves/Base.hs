@@ -20,7 +20,7 @@ import Debug.Trace
 import Control.Exception (assert)
 import Data.Bits
 import Data.List
-import Control.Monad.State.Lazy
+import Control.Monad.State
 import Data.Ord (comparing)
 import System.Random
 
@@ -68,7 +68,7 @@ instance CtxMon m => Node (Game r m) where
     store = storeSearch
     {-# INLINE curNodes #-}
     curNodes = getNodes
-    inform = SM.lift . tellCtx
+    inform = lift . tellCtx
     choose  = choose0
     timeout = isTimeout
 
@@ -373,7 +373,7 @@ betaMove0 good _ absdp m = do	-- dummy: depth
 {--
 showChoose :: CtxMon m => [] -> Game m ()
 showChoose pvs = do
-    mapM_ (\(i, (s, pv)) -> SM.lift $ ctxLog "Info"
+    mapM_ (\(i, (s, pv)) -> lift $ ctxLog "Info"
                                  $ "choose pv " ++ show i ++ " score " ++ show s ++ ": " ++ show pv)
                  $ zip [1..] pvs
     return $ if null pvs then error "showChoose" else head pvs
@@ -397,9 +397,9 @@ choose0 _    pvs = case pvs of
     []      -> return (0, [])	-- just for Wall
 
 logMes :: CtxMon m => String -> Game r m ()
-logMes s = SM.lift $ tellCtx . LogMes $ s
+logMes s = lift $ tellCtx . LogMes $ s
 
 isTimeout :: CtxMon m => Int -> Game r m Bool
 isTimeout msx = do
-    curr <- SM.lift timeCtx
+    curr <- lift timeCtx
     return $! msx < curr

@@ -10,7 +10,7 @@ import System.Time
 import Struct.Struct
 import Struct.Status
 import Config.ConfigClass
-import Search.SearchMonad hiding (lift)
+import Search.SearchMonad
 
 data InfoToGui = Info {
                     infoDepth :: Int,
