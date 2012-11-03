@@ -769,17 +769,16 @@ pvInnerLoopExten :: Node m => Path -> Int -> Bool -> Int -> NodeState
                  -> Search m Path
 pvInnerLoopExten b d spec exd nst = do
     old <- get
-    tact <- lift tactical
     exd' <- reserveExtension (usedext old) exd
+    tact <- lift tactical
     let mn = movno nst
         -- late move reduction
         !inPv = ownnt nst == PVNode
-        !pvs = forpv nst
+        pvs = forpv nst
         a = cursc nst
         !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for next search
         reduce = lmrActive && not (tact || inPv || pnearmate a || spec || exd > 0 || d1 < lmrMinDRed)
         d' = reduceDepth d1 mn reduce pvs
-        !pvpath_ = pvcont nst
     pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
               ++ " exd' = " ++ show exd'
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
@@ -796,6 +795,7 @@ pvInnerLoopExten b d spec exd nst = do
     if hdeep >= d' && (tp == 2 || tp == 1 && hscore > a' || tp == 0 && hscore <= a')
        then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes' >> return ttpath
        else do
+          let pvpath_ = pvcont nst
           if pvs
              then do
                 viztreeABD (pathScore $ -b) (pathScore $ -a) d'
@@ -852,20 +852,15 @@ checkFailOrPVLoop :: Node m => SStats -> Path -> Int -> Move -> Path
                   -> NodeState -> Search m (Bool, NodeState)
 checkFailOrPVLoop xstats b d e s nst = do
     sst <- get
-    let !mn = movno nst
-        !a  = cursc nst
-        !nodes0 = sNodes xstats
-        !nodes1 = sNodes $ stats sst
-        !nodes' = nodes1 - nodes0
-        de = pathDepth s
-    if s <= a
+    let mn = movno nst
+        -- a  = cursc nst
+    if s <= cursc nst
        then do
             -- when in a cut node and the move dissapointed - negative history
-            when (useNegHist && forpv nst && a == b - 1 && mn <= negHistMNo)
+            when (useNegHist && forpv nst && cursc nst == b - 1 && mn <= negHistMNo)
                  $ lift $ betaMove False d (absdp sst) e
-            let !mn1 = mn + 1
-                es = unseq $ pathMoves s
-            kill1 <- if d >= 2 && moreThanOne es
+            let es = unseq $ pathMoves s
+            !kill1 <- if d >= 2 && moreThanOne es
                         then do
                             let (mm:mms) = es
                                 (km:_)   = mms
@@ -874,26 +869,31 @@ checkFailOrPVLoop xstats b d e s nst = do
                             if iskm then return $! pushKiller km s1 (killer nst)
                                     else return $ killer nst
                         else return $ killer nst
-            let nst1 = nst { movno = mn1, killer = kill1, pvcont = emptySeq }
+            let !nst1 = nst { movno = mn+1, killer = kill1, pvcont = emptySeq }
             return (False, nst1)
-       else if s >= b
-          then do
-            let typ = 1	-- best move is e and is beta cut (score is lower limit)
-            when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
-            lift $ betaMove True d (absdp sst) e -- anounce a beta move (for example, update history)
-            -- when debug $ logmes $ "<-- pvInner: beta cut: " ++ show s ++ ", return " ++ show b
-            !csc <- checkPath nst d "cpl 10" $ if s > b then combinePath s b else s
-            pindent $ "beta cut: " ++ show csc
-            let nst1 = nst { cursc = csc, pvcont = emptySeq }
-            -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
-            return (True, nst1)
-          else do	-- means: > a && < b
+       else do
+         let nodes0 = sNodes xstats
+             nodes1 = sNodes $ stats sst
+             nodes' = nodes1 - nodes0
+             !de = pathDepth s
+             storeit t = lift $ {-# SCC "hashStore" #-} store de t de e nodes'
+         if s >= b
+            then do
+              let typ = 1	-- best move is e and is beta cut (score is lower limit)
+              when (de >= minToStore) $ storeit typ
+              lift $ betaMove True d (absdp sst) e -- anounce a beta move (for example, update history)
+              -- when debug $ logmes $ "<-- pvInner: beta cut: " ++ show s ++ ", return " ++ show b
+              !csc <- checkPath nst d "cpl 10" $ if s > b then combinePath s b else s
+              pindent $ "beta cut: " ++ show csc
+              let !nst1 = nst { cursc = csc, pvcont = emptySeq }
+              -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
+              return (True, nst1)
+            else do	-- means: > a && < b
               let typ = 2	-- score is exact
-              when (ownnt nst == PVNode || de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
+              when (ownnt nst == PVNode || de >= minToStore) $ storeit typ
               -- when debug $ logmes $ "<-- pvInner - new a: " ++ show s
-              let !mn1 = mn + 1
-                  nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
-                               forpv = False, movno = mn1, pvcont = emptySeq }
+              let !nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
+                               forpv = False, movno = mn+1, pvcont = emptySeq }
               -- lift $ informStr $ "Better (" ++ show s ++ "): " ++ show np
               return (False, nst1)
 
