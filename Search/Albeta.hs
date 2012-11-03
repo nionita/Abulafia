@@ -450,7 +450,7 @@ pvInnerRoot b d nst e = do
          checkFailOrPVRoot (stats old) b d e s' nst
 
 pvInnerRootExten :: Node m => Path -> Int -> Bool -> Int -> NodeState -> Search m Path
-pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
+pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
     pindent $ "depth = " ++ show d
     old <- get
     exd' <- reserveExtension (usedext old) exd
@@ -461,9 +461,8 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
         !pvs = forpv nst
         !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for the next search
     -- reduce <- reduceLmr d1 inPv (pnearmate a) spec exd
-    !reduce <- reduceLmr d1 inPv False spec exd
-    let d' = reduceDepth d1 mn reduce pvs
-        !pvpath_ = pvcont nst
+    d' <- reduceLmr d1 inPv False spec exd mn pvs
+    let !pvpath_ = pvcont nst
     pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
               ++ " exd' = " ++ show exd'
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
@@ -767,7 +766,7 @@ reserveExtension !uex !exd
 
 pvInnerLoopExten :: Node m => Path -> Int -> Bool -> Int -> NodeState
                  -> Search m Path
-pvInnerLoopExten b d spec exd nst = do
+pvInnerLoopExten b d spec !exd nst = do
     old <- get
     exd' <- reserveExtension (usedext old) exd
     let mn = movno nst
@@ -776,8 +775,7 @@ pvInnerLoopExten b d spec exd nst = do
         pvs = forpv nst
         a = cursc nst
         !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for next search
-    !reduce <- reduceLmr d1 inPv (pnearmate a) spec exd
-    let d' = reduceDepth d1 mn reduce pvs
+    d' <- reduceLmr d1 inPv (pnearmate a) spec exd mn pvs
     pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
               ++ " exd' = " ++ show exd'
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
@@ -841,12 +839,25 @@ pvInnerLoopExten b d spec exd nst = do
                            pvSearch nst' (-b) (-a) d1 pvpath 0
                              >>= return . pnextlev >>= checkPath nst d1 "cpl 16"
 
-reduceLmr :: Node m => Int -> Bool -> Bool -> Bool -> Int -> Search m Bool
-reduceLmr d1 inPv nearmatea spec exd
-    = if not lmrActive || d1 < lmrMinDRed || inPv || spec || exd > 0 || nearmatea
-         then return False
-         else lift tactical >>= return . not
+-- Late Move Reduction
+-- This part (including lmrIndex) seems well optimized
+{-# INLINE reduceLmr #-}
+reduceLmr :: Node m => Int -> Bool -> Bool -> Bool -> Int -> Int -> Bool -> Search m Int
+reduceLmr d inPv nearmatea spec exd w pvs
+    = if not lmrActive || d < lmrMinDRed || inPv || spec || exd > 0 || nearmatea
+         then return d
+         else do
+             !tact <- lift tactical
+             let !rd = reduceDepth d w pvs
+             return $! if tact then d else rd
     where lmrMinDRed = 2 :: Int		-- minimum reduced depth
+
+reduceDepth :: Int -> Int -> Bool -> Int
+reduceDepth !d !w !pvs = m0n
+    where nd = d - k
+          !m0n = max 0 nd
+          k  = if pvs then lmrReducePv  `unsafeAt` lmrIndex d w
+                      else lmrReduceArr `unsafeAt` lmrIndex d w
 
 pnearmate :: Path -> Bool
 pnearmate = nearmate . pathScore
@@ -913,17 +924,6 @@ genAndSort lastpath kill d pv = do
     let es = bestFirst (unseq lastpath) kl esp
     return $ Alt es
     where pv' = pv || not (nullSeq lastpath)
-
--- Late Move Reduction
--- This part (including lmrIndex) seems well optimized
-reduceDepth :: Int -> Int -> Bool -> Bool -> Int
-reduceDepth d w lmr pvs
-    | not lmr   = d
-    | otherwise = m0d
-    where m0d = max 0 nd
-          nd = d - k
-          k  = if pvs then lmrReducePv  `unsafeAt` lmrIndex d w
-                      else lmrReduceArr `unsafeAt` lmrIndex d w
 
 -- Here we know the index is correct, but unsafeIndex (from Data.Ix)
 -- is unfortunately not exported...
