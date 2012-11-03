@@ -63,8 +63,7 @@ useTTinPv   = False	-- retrieve from TT in PV?
 lmrActive :: Bool
 lmrActive   = True
 
-lmrMinDRed, lmrMaxDepth, lmrMaxWidth :: Int
-lmrMinDRed  = 2		-- minimum reduced depth
+lmrMaxDepth, lmrMaxWidth :: Int
 lmrMaxDepth = 15
 lmrMaxWidth = 63
 lmrPv, lmrRest :: Double
@@ -461,8 +460,9 @@ pvInnerRootExten b d spec exd nst = {-# SCC "pvInnerRootExten" #-} do
         !mn = movno nst
         !pvs = forpv nst
         !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for the next search
-        reduce = lmrActive && not (tact || inPv || spec || exd > 0 || d1 < lmrMinDRed)
-        d' = reduceDepth d1 mn reduce pvs
+    -- reduce <- reduceLmr d1 inPv (pnearmate a) spec exd
+    !reduce <- reduceLmr d1 inPv False spec exd
+    let d' = reduceDepth d1 mn reduce pvs
         !pvpath_ = pvcont nst
     pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
               ++ " exd' = " ++ show exd'
@@ -770,15 +770,14 @@ pvInnerLoopExten :: Node m => Path -> Int -> Bool -> Int -> NodeState
 pvInnerLoopExten b d spec exd nst = do
     old <- get
     exd' <- reserveExtension (usedext old) exd
-    tact <- lift tactical
     let mn = movno nst
         -- late move reduction
         !inPv = ownnt nst == PVNode
         pvs = forpv nst
         a = cursc nst
         !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for next search
-        reduce = lmrActive && not (tact || inPv || pnearmate a || spec || exd > 0 || d1 < lmrMinDRed)
-        d' = reduceDepth d1 mn reduce pvs
+    !reduce <- reduceLmr d1 inPv (pnearmate a) spec exd
+    let d' = reduceDepth d1 mn reduce pvs
     pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
               ++ " exd' = " ++ show exd'
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
@@ -841,6 +840,13 @@ pvInnerLoopExten b d spec exd nst = do
                            viztreeABD (pathScore $ -b) (pathScore $ -a) d1
                            pvSearch nst' (-b) (-a) d1 pvpath 0
                              >>= return . pnextlev >>= checkPath nst d1 "cpl 16"
+
+reduceLmr :: Node m => Int -> Bool -> Bool -> Bool -> Int -> Search m Bool
+reduceLmr d1 inPv nearmatea spec exd
+    = if not lmrActive || d1 < lmrMinDRed || inPv || spec || exd > 0 || nearmatea
+         then return False
+         else lift tactical >>= return . not
+    where lmrMinDRed = 2 :: Int		-- minimum reduced depth
 
 pnearmate :: Path -> Bool
 pnearmate = nearmate . pathScore
