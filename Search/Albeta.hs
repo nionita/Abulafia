@@ -183,7 +183,7 @@ data PVState
 -- This is a state which reflects the status of alpha beta in a node while going through the edges
 data NodeState
     = NSt {
-          ownnt :: !NodeType,	-- expected node type
+          nxtnt :: !NodeType,	-- expected node type
           forpv :: !Bool,	-- still searching for PV?
           cursc :: !Path,	-- current alpha value (now plus path & depth)
           movno :: !Int,	-- current move number
@@ -196,6 +196,8 @@ data SStats = SStats {
         sNodes, sNodesQS, sRetr, sRSuc :: !Int
     } deriving Show
 
+-- The node type is the expected node type of the new (child) node, which
+-- is obtained by making one move from the current (parent) node
 data NodeType = PVNode | CutNode | AllNode deriving (Eq, Show)
 
 deepNodeType :: NodeType -> NodeType
@@ -283,7 +285,7 @@ pvsInit :: PVState
 pvsInit = PVState { ronly = pvro00, absdp = 0, usedext = 0,
                     abort = False, short = False, stats = stt0 }
 nst0 :: NodeState
-nst0 = NSt { ownnt = PVNode, forpv = True, cursc = 0, movno = 1,
+nst0 = NSt { nxtnt = PVNode, forpv = True, cursc = 0, movno = 1,
              killer = NoKiller, pvsl = [], pvcont = emptySeq }
 
 stt0 :: SStats
@@ -455,7 +457,7 @@ pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
     old <- get
     exd' <- reserveExtension (usedext old) exd
     tact <- lift tactical
-    let !inPv = ownnt nst == PVNode
+    let !inPv = nxtnt nst == PVNode
         !a  = cursc nst
         !mn = movno nst
         !pvs = forpv nst
@@ -463,7 +465,7 @@ pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
     -- reduce <- reduceLmr d1 inPv (pnearmate a) spec exd
     d' <- reduceLmr d1 inPv False spec exd mn pvs
     let !pvpath_ = pvcont nst
-    pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
+    pindent $ "depth " ++ show d ++ " nt " ++ show (nxtnt nst)
               ++ " exd' = " ++ show exd'
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
               ++ " forpv " ++ show (forpv nst)
@@ -477,7 +479,7 @@ pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
     pvpath' <- if nullSeq pvpath_ then {-# SCC "firstFromHashRoot" #-} bestMoveFromHash
                                   else {-# SCC "firstFromContRoot" #-} return pvpath_
     -- when (nullSeq pvpath' && forpv nst) $ lift
-    --                     $ logmes $ "pvpath is null: d=" ++ show d ++ ", ownnt =" ++ show (ownnt nst)
+    --                     $ logmes $ "pvpath is null: d=" ++ show d ++ ", nxtnt =" ++ show (nxtnt nst)
     if pvs	-- search of principal variation
        then {-# SCC "forpvSearchRoot" #-} do
            viztreeABD (pathScore $ -b) (pathScore $ -a) d'
@@ -543,7 +545,7 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
             let typ = 2
             when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
             let nst1 = if s > a
-                          then nst { cursc = s, ownnt = nextNodeType (ownnt nst), forpv = False }
+                          then nst { cursc = s, nxtnt = nextNodeType (nxtnt nst), forpv = False }
                           else nst
             xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
             return (False, nst1 {movno = mn + 1, pvsl = xpvslg, pvcont = emptySeq})
@@ -582,7 +584,7 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
                    let typ = 2	-- best move so far (score is exact)
                    when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ sc e nodes'
                    xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
-                   let nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
+                   let nst1 = nst { cursc = s, nxtnt = nextNodeType (nxtnt nst),
                                     forpv = False, movno = mn + 1,
                                     pvsl = xpvslg, pvcont = emptySeq }
                    -- lift $ logmes $ "Root move " ++ show e ++ " improves alpha: " ++ show s
@@ -637,7 +639,7 @@ pvSearch _ !a !b !d _ _ | d <= 0 = do
     return esc
 pvSearch nst !a !b !d lastpath lastnull = do
     pindent $ "=> " ++ show a ++ ", " ++ show b
-    nmhigh <- if not nulActivate || lastnull < 1 || ownnt nst == PVNode
+    nmhigh <- if not nulActivate || lastnull < 1 || nxtnt nst == PVNode
                  then return False
                  else nullEdgeFailsHigh nst b d lastnull
     abrt <- gets abort
@@ -647,7 +649,7 @@ pvSearch nst !a !b !d lastpath lastnull = do
          pindent $ "<= " ++ show s
          return s
        else do
-         edges <- genAndSort lastpath (killer nst) d (forpv nst)	-- here: (ownnt nst /= AllNode)
+         edges <- genAndSort lastpath (killer nst) d (forpv nst)	-- here: (nxtnt nst /= AllNode)
          if noMove edges
             then do
               v <- lift staticVal
@@ -657,12 +659,12 @@ pvSearch nst !a !b !d lastpath lastnull = do
             else do
               nodes0 <- gets (sNodes . stats)
               -- futility pruning?
-              prune <- if not futilActive || ownnt nst == PVNode
+              prune <- if not futilActive || nxtnt nst == PVNode
                           then return False
                           else isPruneFutil d a
               -- Loop thru the moves
               let !pvpath = if nullSeq lastpath then emptySeq else Seq $ tail $ unseq lastpath
-                  !nsti = nst0 { ownnt = deepNodeType (ownnt nst), cursc = a, pvcont = pvpath }
+                  !nsti = nst0 { nxtnt = deepNodeType (nxtnt nst), cursc = a, pvcont = pvpath }
               nstf <- pvSLoop b d prune nsti edges
               let s = cursc nstf
               pindent $ "<= " ++ show s
@@ -705,7 +707,7 @@ pvZeroW _ !b !d _ _ | d <= 0 = do
     where bGrain = b-pathGrain
 pvZeroW nst b !d lastpath lastnull = do
     pindent $ ":> " ++ show b
-    nmhigh <- if not nulActivate || lastnull < 1 || ownnt nst == PVNode
+    nmhigh <- if not nulActivate || lastnull < 1 || nxtnt nst == PVNode
                  then return False
                  else nullEdgeFailsHigh nst b d lastnull
     abrt <- gets abort
@@ -715,7 +717,7 @@ pvZeroW nst b !d lastpath lastnull = do
          pindent $ "<= " ++ show s
          return s
        else do
-         edges <- genAndSort lastpath (killer nst) d False	-- here: (ownnt nst /= AllNode)
+         edges <- genAndSort lastpath (killer nst) d False	-- here: (nxtnt nst /= AllNode)
          if noMove edges
             then do
               v <- lift staticVal
@@ -725,12 +727,12 @@ pvZeroW nst b !d lastpath lastnull = do
             else do
               nodes0 <- gets (sNodes . stats)
               -- futility pruning?
-              prune <- if not futilActive || ownnt nst == PVNode	-- can it be PVNode?
+              prune <- if not futilActive || nxtnt nst == PVNode	-- can it be PVNode?
                           then return False
                           else isPruneFutil d bGrain	-- was a
               -- Loop thru the moves
               let !pvpath = if nullSeq lastpath then emptySeq else Seq $ tail $ unseq lastpath
-                  !nsti = nst0 { ownnt = deepNodeType (ownnt nst), cursc = bGrain, pvcont = pvpath }
+                  !nsti = nst0 { nxtnt = deepNodeType (nxtnt nst), cursc = bGrain, pvcont = pvpath }
               nstf <- pvZLoop b d prune nsti edges
               let s = cursc nstf
               pindent $ "<: " ++ show s
@@ -869,12 +871,12 @@ pvInnerLoopExten b d spec !exd nst = do
     exd' <- reserveExtension (usedext old) exd
     let mn = movno nst
         -- late move reduction
-        !inPv = ownnt nst == PVNode
+        !inPv = nxtnt nst == PVNode
         pvs = forpv nst
         a = cursc nst
         !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for next search
     d' <- reduceLmr d1 inPv (pnearmate a) spec exd mn pvs
-    pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
+    pindent $ "depth " ++ show d ++ " nt " ++ show (nxtnt nst)
               ++ " exd' = " ++ show exd'
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
               ++ " forpv " ++ show (forpv nst)
@@ -945,11 +947,11 @@ pvInnerLoopExtenZ b d spec !exd nst = do
     exd' <- reserveExtension (usedext old) exd
     let mn = movno nst
         -- late move reduction
-        !inPv = ownnt nst == PVNode	-- can we be in PVNode here?
+        !inPv = nxtnt nst == PVNode	-- can we be in PVNode here?
         -- a = cursc nst
         !d1 = d + exd' - 1	-- this is the normal (unreduced) depth for next search
     d' <- reduceLmr d1 inPv (pnearmate b) spec exd mn False
-    pindent $ "depth " ++ show d ++ " nt " ++ show (ownnt nst)
+    pindent $ "depth " ++ show d ++ " nt " ++ show (nxtnt nst)
               ++ " exd' = " ++ show exd'
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
               ++ " forpv " ++ show False
@@ -1018,9 +1020,9 @@ checkFailOrPVLoop xstats b d e s nst = do
               return (True, nst1)
             else do	-- means: > a && < b
               let typ = 2	-- score is exact
-              when (ownnt nst == PVNode || de >= minToStore) $ storeit typ
+              when (nxtnt nst == PVNode || de >= minToStore) $ storeit typ
               -- when debug $ logmes $ "<-- pvInner - new a: " ++ show s
-              let !nst1 = nst { cursc = s, ownnt = nextNodeType (ownnt nst),
+              let !nst1 = nst { cursc = s, nxtnt = nextNodeType (nxtnt nst),
                                forpv = False, movno = mn+1, pvcont = emptySeq }
               -- lift $ informStr $ "Better (" ++ show s ++ "): " ++ show np
               return (False, nst1)
@@ -1148,7 +1150,7 @@ isPruneFutil d a
 -- checkPath _ _ _ s = return s
 checkPath :: Node m => NodeState -> Int -> String -> Path -> Search m Path
 checkPath nst d mes s = do
-    when (ownnt nst == PVNode) $ do
+    when (nxtnt nst == PVNode) $ do
         iss  <- gets short
         when (not iss) $ do
             abrt <- gets abort
@@ -1192,7 +1194,7 @@ pvQSearch !a !b c = do				   -- to avoid endless loops
                -- then qindent ("<= " ++ show b) >> return b
                then return b
                else do
-                   let !delta = a - qsDelta
+                   let delta = a - qsDelta
                    if qsDeltaCut && delta < a && stp < delta
                       -- then qindent ("<= " ++ show a) >> return a
                       then return a
@@ -1213,9 +1215,9 @@ pvQSearch !a !b c = do				   -- to avoid endless loops
 
 pvQLoop :: Node m => Int -> Int -> Int -> Alt Move -> Search m Int
 pvQLoop b c s es = go s es
-    where go s (Alt [])     = return s
-          go s (Alt (e:es)) = do
-              (cut, s') <- pvQInnerLoop b c s e
+    where go !s (Alt [])     = return s
+          go !s (Alt (e:es)) = do
+              (!cut, !s') <- pvQInnerLoop b c s e
               if cut then return s'
                      else go s' $ Alt es
 
@@ -1265,7 +1267,7 @@ bestMoveFromIID nst a b d lastnull
                 = {-# SCC "iidExecutedYes" #-} pathMoves `liftM` pvSearch nst a b d' emptySeq lastnull
     | otherwise = {-# SCC "iidExecutedNo"  #-} return emptySeq
     where d' = min maxIIDDepth (iidNewDepth d)
-          nt = ownnt nst
+          nt = nxtnt nst
 
 {-# INLINE timeToAbort #-}
 timeToAbort :: Node m => Search m Bool
