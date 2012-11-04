@@ -31,8 +31,10 @@ goonFile   = "running"
 
 -- Some constants for playing one match
 cuteChess = "J:\\Chess\\cutechess-cli-win32\\cutechess-cli.exe"
-engPath   = "J:\\AbaAba\\dist\\build\\AbaAba"
-engine    = "AbaAba_0_59_evo"
+engPath   = "J:\\AbaAba\\dist\\build\\Abulafia"
+-- Big care here: the running engine should not produce a logfile,
+-- as that would give an error when starting the same engine twice in the same directory
+engine    = "Abulafia_0_62_n1nlnf"
 noGames   = 2
 parGames  = "-games " ++ show noGames
 tcMoves   = 20	-- moves
@@ -243,6 +245,7 @@ oneMatch event pgn p1 p2 = do
                ]
         args2 = concatMap words [ resp, pfil ]
         args = if pgn then args1 ++ args2 else args1
+    -- putStrLn $ "Start: " ++ cuteChess ++ show args
     (_, Just hout, _, ph)
             <- createProcess (proc cuteChess args) { std_out = CreatePipe }
     catch (everyLine hout (0, 0, 0) noGames) $ \e -> do
@@ -254,6 +257,7 @@ oneMatch event pgn p1 p2 = do
 everyLine _ r 0 = return $ Just r
 everyLine h r g = do
     lin <- hGetLine h
+    -- putStrLn $ "Got: " ++ lin
     let (r1, g1) = if "Score of" `isPrefixOf` lin
                       then (getScore lin, g-1)
                       else (r, g)
