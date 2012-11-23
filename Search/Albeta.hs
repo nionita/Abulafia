@@ -506,11 +506,10 @@ pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
                  -- Two re-searches must be considered: a: full depth, b: full window
                  pindent $ "Research! (" ++ show s1 ++ ")"
                  viztreeReSe
-                 -- Try: no null move in re-search
                  if d' < d1	-- did we search with reduced depth?
                     then do	-- yes: re-search with normal depth
                       viztreeABD (pathScore $ aGrain) (pathScore $ -a) d1
-                      !s2 <- {-# SCC "nullWinResRootDD" #-} pvZeroW nst (-a) d1 pvpath 0
+                      !s2 <- {-# SCC "nullWinResRootDD" #-} pvZeroW nst (-a) d1 pvpath nulMoves
                          >>= return . pnextlev             >>= checkPath nst d1 "cpl 12"
                       abrt <- gets abort
                       if abrt || s2 <= a -- we failed low as expected
@@ -518,13 +517,13 @@ pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
                          -- we must try full window
                          else do
                              let nst' = nst { nxtnt = PVNode, forpv = True, pvcont = pathMoves s2 }
-                             pvSearch nst' (-b) (-a) d1 pvpath 0
+                             pvSearch nst' (-b) (-a) d1 pvpath nulMoves
                                  >>= return . pnextlev      >>= checkPath nst d1 "cpl 12a"
                     else {-# SCC "nullWinResRootSD" #-} do
                         -- Depth was not reduced, so re-search full window
                         viztreeABD (pathScore $ -b) (pathScore $ -a) d1
                         let nst' = nst { nxtnt = PVNode, forpv = True, pvcont = pathMoves s1 }
-                        pvSearch nst' (-b) (-a) d1 pvpath 0	-- no null move next search
+                        pvSearch nst' (-b) (-a) d1 pvpath nulMoves
                           >>= return . pnextlev             >>= checkPath nst d1 "cpl 13"
 
 checkFailOrPVRoot :: Node m => SStats -> Path -> Int -> Move -> Path
@@ -926,11 +925,10 @@ pvInnerLoopExten b d spec !exd nst = do
                      -- we didn't fail low and need re-search, 2 kinds: full depth, full window
                      pindent $ "Research! (" ++ show s1 ++ ")"
                      viztreeReSe
-                     -- Try: no null move in re-search
                      if d' < d1	-- did we search with reduced depth?
                         then do	-- yes: re-search with with normal depth
                             viztreeABD (pathScore aGrain) (pathScore $ -a) d1
-                            !s2 <- pvZeroW nst (-a) d1 pvpath 0
+                            !s2 <- pvZeroW nst (-a) d1 pvpath nulMoves
                                        >>= return . pnextlev >>= checkPath nst d1 "cpl 9a"
                             abrt <- gets abort
                             if abrt || s2 <= a
@@ -939,7 +937,7 @@ pvInnerLoopExten b d spec !exd nst = do
                                    let nst' = if crtnt nst == PVNode
                                                  then nst { nxtnt = PVNode, forpv = True, pvcont = pathMoves s2 }
                                                  else nst { forpv = True, pvcont = pathMoves s2 }
-                                   pvSearch nst' (-b) (-a) d1 pvpath 0
+                                   pvSearch nst' (-b) (-a) d1 pvpath nulMoves
                                         >>= return . pnextlev >>= checkPath nst d1 "cpl 15"
                         else do
                            -- was not reduced, try full window
@@ -947,7 +945,7 @@ pvInnerLoopExten b d spec !exd nst = do
                            let nst' = if crtnt nst == PVNode
                                          then nst { nxtnt = PVNode, forpv = True, pvcont = pathMoves s1 }
                                          else nst { forpv = True, pvcont = pathMoves s1 }
-                           pvSearch nst' (-b) (-a) d1 pvpath 0
+                           pvSearch nst' (-b) (-a) d1 pvpath nulMoves
                              >>= return . pnextlev >>= checkPath nst d1 "cpl 16"
 
 -- For zero window
