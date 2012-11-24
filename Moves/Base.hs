@@ -198,7 +198,7 @@ doMove real m qs = do
     statNodes   -- when counting all visited nodes
     s  <- get
     -- let pc = if null (stack s) then error "doMove" else head $ stack s
-    let !pc = head $ stack s
+    let !pc = if null (stack s) then error "doMove null stack" else head (stack s)
         !m1 = if real then checkCastle (checkEnPas m pc) pc else m
         !kc = case tabla pc (toSquare m1) of
                   Busy _ King -> True
@@ -377,7 +377,7 @@ showChoose pvs = do
 
 -- Choose between almost equal (root) moves
 choose0 :: CtxMon m => Bool -> [(Int, [Move])] -> Game r m (Int, [Move])
-choose0 True pvs = return $ head pvs
+choose0 True pvs = return $ if null pvs then error "Empty choose!" else head pvs
 choose0 _    pvs = case pvs of
     p1 : [] -> return p1
     p1 : ps -> do

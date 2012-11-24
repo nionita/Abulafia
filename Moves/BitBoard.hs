@@ -21,7 +21,6 @@ lsb b = b .&. (-b)
 
 -- {-# INLINE exactOne #-}
 exactOne :: BBoard -> Bool
--- exactOne b = b /= 0 && b .&. complement (lsb b) == 0
 exactOne !b = b /= 0 && b `less` lsb b == 0
 
 {-# INLINE less #-}
@@ -30,9 +29,7 @@ less w1 w2 = w1 .&. complement w2
 
 {-# INLINE firstOne #-}
 firstOne :: BBoard -> Square
-firstOne b = case b of
-                 b1 -> case fromIntegral $ (lsb b1 * bitScanMagic) `shiftR` 58 of
-                           x -> bitScanDatabase `unsafeAt` x
+firstOne !b = bitScanDatabase `unsafeAt` (fromIntegral $ (lsb b * bitScanMagic) `shiftR` 58)
 
 bitScanMagic :: BBoard
 bitScanMagic = 0x07EDD5E59A4E28C2
@@ -74,11 +71,11 @@ popCount1 = B.popCount
 
 {-# INLINE bbToSquares #-}
 bbToSquares :: BBoard -> [Square]
-bbToSquares bb = unfoldr f bb
+bbToSquares !bb = unfoldr f bb
     where f :: BBoard -> Maybe (Square, BBoard)
-          f 0 = Nothing
-          -- f b = case firstOne b of sq -> Just (sq, b `clearBit` sq)
-          f b = case firstOne b of sq -> case b `clearBit` sq of b1 -> Just (sq, b1)
+          f 0  = Nothing
+          f b = case firstOne b of sq -> Just (sq, b `clearBit` sq)
+          -- f !b = case firstOne b of sq -> case b `clearBit` sq of b1 -> Just (sq, b1)
 
 {-# INLINE bbToSquaresBB #-}
 bbToSquaresBB :: (Square -> BBoard) -> BBoard -> BBoard

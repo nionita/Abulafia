@@ -215,9 +215,12 @@ stateFromFen (Pos fen) c h es = posToState (posFromFen fen) c h es
 movingColor :: Pos -> Color
 movingColor fen
     | Pos str <- fen
-        = case head . head . tail $ words str of
-              'w' -> White
-              _   -> Black
+        = case words str of
+              _ : (c:_) : _ -> case c of
+                                 'w' -> White
+                                 'b' -> Black
+                                 _   -> error $ "Wrong fen: " ++ str
+              _ -> error $ "Wrong fen: " ++ str
     | otherwise = White     -- startposition
 
 doGo :: [GoCmds] -> CtxIO ()

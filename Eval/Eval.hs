@@ -496,8 +496,8 @@ evalRedundance p _ = [bp, rr]
           !bp  = bpw - bpb
           !wro = rooks p .&. white p
           !bro = rooks p .&. black p
-          !wrr = if wro /= 0 then 1 else 0
-          !brr = if bro /= 0 then 1 else 0
+          !wrr = if wro > 1 then 1 else 0
+          !brr = if bro > 1 then 1 else 0
           !rr  = wrr - brr
 
 ------ Knight & Rook correction according to own pawns ------
@@ -556,10 +556,10 @@ bPassPBB sq = foldl' (.|.) 0 $ takeWhile (/= 0) $ iterate (`shiftR` 8) bsqs
 instance EvalItem PassPawns where
     evalItem p c _ = passPawns p c
     evalItemNDL _  = [("passPawnBonus", (10, (0, 100))),
-                      ("passPawn4", (55, (0, 200))),
-                      ("passPawn5", (95, (0, 300))),
-                      ("passPawn6", (162, (0, 400))),
-                      ("passPawn7", (374, (0, 500))) ]
+                      ("passPawn4", ( 55, (0, 200))),
+                      ("passPawn5", ( 95, (0, 240))),
+                      ("passPawn6", (162, (0, 280))),
+                      ("passPawn7", (300, (0, 300))) ]
 
 passPawns :: MyPos -> Color -> IParams
 passPawns p _ = [dfp, dfp4, dfp5, dfp6, dfp7]

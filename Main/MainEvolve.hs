@@ -34,7 +34,7 @@ cuteChess = "J:\\Chess\\cutechess-cli-win32\\cutechess-cli.exe"
 engPath   = "J:\\AbaAba\\dist\\build\\Abulafia"
 -- Big care here: the running engine should not produce a logfile,
 -- as that would give an error when starting the same engine twice in the same directory
-engine    = "Abulafia_0_62_n1nlnf"
+engine    = "Abulafia_0_62_evo"
 noGames   = 2
 parGames  = "-games " ++ show noGames
 tcMoves   = 20	-- moves
