@@ -307,15 +307,11 @@ startSearchThread tim tpm mtg dpt = do
             ctx <- ask
             case logger ctx of
                 Just _  -> ctxLog "Error" mes
-                Nothing -> do
-                    -- let efname = "Abulafia_" ++ show (strttm ctx) ++ "_err.txt"
-                    let efname = "Abulafia_err.txt"
-                        efcont = unlines [idName, mes]
-                    liftIO $ writeFile efname efcont
+                Nothing -> return ()
+            lift $ collectError mes
             answer $ infos mes
             liftIO $ threadDelay $ 50*1000 -- give time to send the ans
 
--- ctxCatch :: CE.Exception e => CtxIO a -> (e -> CtxIO a) -> CtxIO a
 ctxCatch :: CtxIO a -> (CE.SomeException -> CtxIO a) -> CtxIO a
 ctxCatch a f = do
     ctx <- ask
@@ -523,3 +519,12 @@ nps n = "info nps " ++ show n
 
 infos :: String -> String
 infos s = "info string " ++ s
+
+-- Append error info to error file:
+collectError :: String -> IO ()
+collectError mes = do
+    let efname = "Abulafia_collected_errors.txt"
+    tm <- currentSecs
+    ef <- openFile efname AppendMode
+    hPutStrLn ef $ show tm ++ " " ++ idName ++ ": " ++ mes
+    hClose ef

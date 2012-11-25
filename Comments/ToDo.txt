@@ -26,8 +26,8 @@ For 0.62:
 - At the end: some stricts (!) are perhaps not necessary
 - For further speed optimisation: Changes which shape the tree different cannot be compared against each other!
 
-Tried, but no better results:
-=============================
+Tried in 0.62, but no better results:
+=====================================
 - Read-only values (RO):
         - on tree level (ROT): all from PVReadonly (albest, timeli, abmili) + draft
         - on node level (RON): (from PVState:) absdp, usedext, ownnt (must be always initialised before a deeper search)

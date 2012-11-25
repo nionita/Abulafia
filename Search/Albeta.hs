@@ -507,7 +507,7 @@ pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
                         -- Depth was not reduced, so re-search full window
                         viztreeABD (pathScore negb) (pathScore nega) d1
                         let nst' = nst { nxtnt = PVNode, forpv = True }
-                        pvSearch nst' negb negb d1 pvpath nulMoves
+                        pvSearch nst' negb nega d1 pvpath nulMoves
                           >>= return . pnextlev             >>= checkPath nst d1 "cpl 13"
 
 checkFailOrPVRoot :: Node m => SStats -> Path -> Int -> Move -> Path
@@ -609,7 +609,6 @@ pvSearch _ !a !b !d _ _ | d <= 0 = do
                   then do
                     (hdeep, tp, hscore, _, nodes')
                         <- {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
-                    let hs = - pathFromScore "TT Score" hscore
                     if hdeep >= 0 && (tp == 2 || tp == 1 && hscore >  pathScore a
                                               || tp == 0 && hscore <= pathScore a)
                        then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes' >> return (hscore, 0)
@@ -865,13 +864,12 @@ pvInnerLoopExten b d spec !exd nst = do
         <- if (useTTinPv || not inPv) && d >= minToRetr
               then {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
               else return (-1, 0, 0, undefined, 0)
-    let ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'],
-                        pathOrig = "TT" }
-        a' = pathScore a
-        --2-- ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [] }
-        -- hs = - ttpath
-    if hdeep >= d' && (tp == 2 || tp == 1 && hscore > a' || tp == 0 && hscore <= a')
-       then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes' >> return ttpath
+    let asco = pathScore a
+    if hdeep >= d' && (tp == 2 || tp == 1 && hscore > asco || tp == 0 && hscore <= asco)
+       then {-# SCC "hashRetrieveScoreOk" #-} do
+           let ttpath = Path { pathScore = hscore, pathDepth = hdeep,
+                               pathMoves = Seq [e'], pathOrig = "TT" }
+           reSucc nodes' >> return ttpath
        else do
           let pvpath_ = pvcont nst
               nega = -a
@@ -944,13 +942,12 @@ pvInnerLoopExtenZ b d spec !exd nst = do
         <- if d >= minToRetr
               then {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
               else return (-1, 0, 0, undefined, 0)
-    let ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [e'],
-                        pathOrig = "TT" }
-        b' = pathScore b
-        --2-- ttpath = Path { pathScore = hscore, pathDepth = hdeep, pathMoves = Seq [] }
-        -- hs = - ttpath
-    if hdeep >= d' && (tp == 2 || tp == 1 && hscore >= b' || tp == 0 && hscore < b')
-       then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes' >> return ttpath	-- !!!
+    let bsco = pathScore b
+    if hdeep >= d' && (tp == 2 || tp == 1 && hscore >= bsco || tp == 0 && hscore < bsco)
+       then {-# SCC "hashRetrieveScoreOk" #-} do
+           let ttpath = Path { pathScore = hscore, pathDepth = hdeep,
+                               pathMoves = Seq [e'], pathOrig = "TT" }
+           reSucc nodes' >> return ttpath	-- !!!
        else do
           -- Very probable we don't have pvpath, so don't bother
           -- let pvpath_ = pvcont nst
