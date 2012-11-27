@@ -98,7 +98,7 @@ maxFutilDepth = 3
 -- C:  75 == n1ns
 -- D: 100
 -- E: 125
-futilMs =  25	-- margin for depth 1
+futilMs = 125	-- margin for depth 1
 futilMv = 150	-- suplementary margin for every further depth
 futilMargins :: Int -> Int
 futilMargins d = futilMs - futilMv + d*futilMv
@@ -637,7 +637,8 @@ pvSearch nst !a !b !d lastpath lastnull = do
          pindent $ "<= " ++ show s
          return s
        else do
-         edges <- genAndSort lastpath (killer nst) d (forpv nst)
+         -- edges <- genAndSort lastpath (killer nst) d (forpv nst)
+         edges <- genAndSort lastpath (killer nst) d (crtnt nst /= AllNode)
          if noMove edges
             then do
               v <- lift staticVal
@@ -705,7 +706,7 @@ pvZeroW nst b !d lastpath lastnull = do
          pindent $ "<= " ++ show s
          return s
        else do
-         edges <- genAndSort lastpath (killer nst) d (nxtnt nst /= AllNode)
+         edges <- genAndSort lastpath (killer nst) d (crtnt nst /= AllNode)
          if noMove edges
             then do
               v <- lift staticVal
