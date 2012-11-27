@@ -92,7 +92,13 @@ maxFutilDepth = 3
 
 -- This is a linear formula for futility margin
 -- Should apply from 1 to maxFutilDepth (checked elsewehere)
-futilMs = 75	-- margin for depth 1
+-- Optimisation for futilMs:
+-- A:  25
+-- B:  50
+-- C:  75 == n1ns
+-- D: 100
+-- E: 125
+futilMs =  25	-- margin for depth 1
 futilMv = 150	-- suplementary margin for every further depth
 futilMargins :: Int -> Int
 futilMargins d = futilMs - futilMv + d*futilMv
