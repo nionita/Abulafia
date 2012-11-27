@@ -536,7 +536,8 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
             let typ = 2
             when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
             let nst1 = if s > a
-                          then nst { cursc = s, nxtnt = nextNodeType (nxtnt nst), forpv = False }
+                          -- then nst { cursc = s, nxtnt = nextNodeType (nxtnt nst), forpv = False }
+                          then nst { nxtnt = nextNodeType (nxtnt nst) }
                           else nst
             xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
             return (False, nst1 {movno = mn + 1, pvsl = xpvslg, pvcont = emptySeq})

@@ -427,7 +427,7 @@ answer s = do
 -- Version and suffix:
 progVersion, progVerSuff, progLogName :: String
 progVersion = "0.62"
-progVerSuff = "n1ns2"
+progVerSuff = "n1ns3"
 
 progLogName = "abulafia" ++ "-" ++ progVersion
                  ++ if null progVerSuff then ""
