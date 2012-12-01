@@ -1,9 +1,17 @@
 module Struct.Evolve where
+import Control.Concurrent.Chan
 -- import qualified Data.Vector.Unboxed as V
 
 type Player = String
+
 type Event  = String
-type Result = Maybe (Int, Int, Int)
+
+data Result = ToPlay
+            | Playing
+            | Done (Int, Int, Int)
+            deriving (Show, Read)
+
+type ResReturn = ((Int, Int), Maybe (Int, Int, Int))
 
 data Pairing = Pairing {
                   pair   :: (Int, Int),
@@ -23,8 +31,8 @@ data Tournament
 
 data Phase = Initialize | Prepare | Play deriving (Show, Read)
 
-data EvolveStatus
-    = Evs {
+data EvolvePersistentState
+    = Pers {
         evName     :: String,		-- evolve name
         evPopCount :: Int,		-- population count (without witness)
         evPhase    :: Phase,		-- current phase
@@ -36,3 +44,11 @@ data EvolveStatus
         evWitness  :: Maybe Player,	-- witness player
         evWitSucc  :: [Rational]	-- points of the witness over time (reverse)
       } deriving (Show, Read)
+
+data EvolveState
+    = EvSt {
+        stPers     :: EvolvePersistentState,	-- the persistent state
+        stChan     :: Chan ResReturn,		-- channel for game result returns
+        stMaxThr   :: Int,			-- maximum number of running games
+        stCurThr   :: Int 			-- current number of running games
+      }
