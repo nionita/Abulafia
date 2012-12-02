@@ -298,19 +298,27 @@ startWorking tim tpm mtg dpt = do
     modifyChanging (\c -> c { compThread = Just tid })
     return ()
 
+-- We use modifyChanging in at least 2 threads: in the reader and
+-- in the search thread (here in giveBestMove)
+-- This is not good, then it can lead to race conditions. We should
+-- find another scheme, for example with STM
 startSearchThread :: Int -> Int -> Int -> Int -> CtxIO ()
 startSearchThread tim tpm mtg dpt = do
     fd <- getIParamDef "firstDepth" 1
     ctxCatch (searchTheTree fd dpt 0 tim tpm mtg Nothing [] [])
         $ \e -> do
+            chg <- readChanging
             let mes = "searchTheTree terminated by exception: " ++ show e
+            answer $ infos mes
+            case forGui chg of
+                Just ifg -> giveBestMove $ infoPv ifg
+                Nothing  -> return ()
             ctx <- ask
             case logger ctx of
                 Just _  -> ctxLog "Error" mes
                 Nothing -> return ()
             lift $ collectError mes
-            answer $ infos mes
-            liftIO $ threadDelay $ 50*1000 -- give time to send the ans
+            -- Why? liftIO $ threadDelay $ 50*1000 -- give time to send the ans
 
 ctxCatch :: CtxIO a -> (CE.SomeException -> CtxIO a) -> CtxIO a
 ctxCatch a f = do
@@ -427,7 +435,7 @@ answer s = do
 -- Version and suffix:
 progVersion, progVerSuff, progLogName :: String
 progVersion = "0.62"
-progVerSuff = "n1ns3"
+progVerSuff = "n1rev"
 
 progLogName = "abulafia" ++ "-" ++ progVersion
                  ++ if null progVerSuff then ""
