@@ -73,6 +73,9 @@ qualiFrc = 50	-- percent of the population which qualifies for next tournament
 eliteFrc = 50	-- percent of the qualifiers which is elite (determine the new distribution)
 distStep = 0.5	-- distribution changing step
 
+-- Parameters for variation of the random generated candidates
+unchangedChances = 8 :: Int	-- remain unchanged in 8 from 8+2 cases
+
 -- To start a new evolve give directory and a name
 -- To continue an interrupted evolve, just give the directory (default: pwd)
 main = do
@@ -132,10 +135,12 @@ correctTour eps = case evCurTour eps of
 -- We control the number of threads as a number written in the "running" file
 howManyThreads :: IO Int
 howManyThreads = do
-    ifc <- threadsFromFile	--- `catch` \_ -> return 0	-- should check what kind of exception
+    ifc <- threadsFromFile `catch` retZero	-- should check what kind of exception
     -- kern <- getNumCapabilities
     -- return $ max 0 $ min ifc kern	-- give some reasonable limits
     return $ max 0 $ min ifc 6	-- give some reasonable limits
+    where retZero :: SomeException -> IO Int
+          retZero = \_ -> return 0
 
 threadsFromFile :: IO Int
 threadsFromFile = readFile goonFile >>= return . read . head . lines
@@ -158,9 +163,13 @@ putPersState p = modify $ \s -> s { stPers = p }
 -- these changes is visible
 evolveOrStop = do
     goon <- lift $ howManyThreads
-    if goon > 0
+    evst <- get
+    when (goon /= stMaxThr evst) $ lift
+        $ putStrLn $ "Max threads set to " ++ show goon
+                   ++ ", currently " ++ show (stCurThr evst) ++ " threads running"
+    if goon > 0 || stCurThr evst > 0
        then evolveState goon >> gets stPers >>= \s -> lift (saveState s) >> evolveOrStop
-       else lift $ putStrLn "Running file not found or containing 0, exiting"
+       else lift $ putStrLn "Exiting"
 
 evolveState goon = do
     phase <- gets $ evPhase . stPers
@@ -439,11 +448,27 @@ showConfig cnf comm = comm ++ "\n" ++ lins
 genCandidates :: Distrib -> Int -> IO [Vec]
 genCandidates dist n = forM [1..n] $ \_ -> genOneCand dist
 
-genOneCand (_, (means, vars))
-    = fmap (inLimits parLims) $ mapM (uncurry fitNormal) $ zip means $ map sqrt vars
+-- Generating one candidate given the means and variations of the parameters
+-- We must generate gaussian random numbers around the means with the corresponding sigma
+-- and then bring them in limits (a simple minimum/maximum operation)
+-- We then round each value (as the actual parameters will be the integer ones)
+-- and random variate some of them with +1 or -1 (with low probability)
+genOneCand (_, (means, vars)) = do
+    pars  <- mapM (uncurry fitNormal) $ zip means $ map sqrt vars
+    pars' <- mapM variate pars
+    return $ map rounding . inLimits parLims $ pars'
+    where rounding x = let y = round x :: Int in fromIntegral y
 
 uniform :: IO Double
 uniform = getStdRandom (randomR (-1, 1))
+
+variate :: Double -> IO Double
+variate x = do
+    r <- getStdRandom (randomR (-1, unchangedChances))
+    case r of
+        -1 -> return $ x - 1
+        0  -> return $ x + 1
+        _  -> return x
 
 -- Marsaglia polar method for normal standard distribution:
 genNormal = do
@@ -472,34 +497,3 @@ newDist (ddim, (omeans, ovars)) vs = (ddim, (nmeans, nvars))
 
 moveTo old new = zipWith (+) (map (* ost) old) (map (* distStep) new)
     where ost = 1 - distStep
-
-{--
-mainTest = withTimeOut getPowerInput 3000000 ()
-
-getPowerInput = do
-    let power = "powershell.exe"
-        args = [
-               "sleep", "2", ";",
-               "get-process", "cmd", ";",
-               "sleep", "5", ";",
-               "get-process", "svchost"
-               ]
-    (_, Just hout, _, ph)
-            <- createProcess (proc power args) { std_out = CreatePipe }
-    -- putStrLn "Created process, sleeping 2 sec"
-    -- threadDelay (2000*1000)	-- sleep one second to give the process time to set up
-    -- putStrLn "Begin to read the process output"
-    catch (powerLine hout) $ \e -> do
-        putStrLn $ "Error: " ++ show e
-        terminateProcess ph
-
-powerLine h = do
-    eof <- hIsEOF h
-    if eof then return () else do
-        -- intime <- hWaitForInput h waitMilli
-        -- if not intime then return Nothing else do
-            -- putStrLn $ "intime = " ++ show intime
-            lin <- hGetLine h
-            putStrLn $ "--> " ++ lin
-            powerLine h
---}
