@@ -1,0 +1,21 @@
+-- Candidate learn3-64-2.txt created on Sun Sep 11 14:17:55 Mitteleurop„ische Sommerzeit 2011
+materialDiff = 1.0
+bishopPair = 50.070371493661504
+redundanceRook = -5.26887663964692
+nrCorrection = 0.669778849836294
+rookPawn = -9.888819347785683
+kingSafe = 0.3225007334093164
+kingOpenOwn = -0.6552675494900765
+kingOpenAdv = 0.52343135085105
+kingCenter = -10.77643074729342
+lastLinePenalty = 3.617161465897031
+mobilityKnight = 5.644519483056669
+mobilityBishop = 2.5622739587602634
+mobilityRook = 4.3135305399143
+mobilityQueen = 2.3299130094165923
+centerAttacs = 8.982201602208546
+passPawnBonus = 12.093304919988974
+passPawn4 = 58.75156976454378
+passPawn5 = 106.26497695849278
+passPawn6 = 164.50795651817745
+passPawn7 = 358.38419361311463

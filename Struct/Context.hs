@@ -10,7 +10,7 @@ import System.Time
 import Struct.Struct
 import Struct.Status
 import Config.ConfigClass
-import Search.SearchMonad hiding (lift)
+import Search.SearchMonad
 
 data InfoToGui = Info {
                     infoDepth :: Int,
@@ -98,7 +98,7 @@ currentSecs = do
     TOD s _ <- getClockTime
     return s
 
-secondZero = 1346600000	-- the reference second - has to be increased by 1 mio every about 3 years
+secondZero = 1353700000	-- the reference second - has to be increased by 1 mio every about 3 years
 
 -- Current time in ms (since program start)
 currMilli :: IO Int

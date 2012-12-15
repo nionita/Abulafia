@@ -26,7 +26,7 @@ import Eval.Eval (paramNames)
 import Eval.FileParams (makeEvalState)
 
 forceLogging :: Bool
-forceLogging = True
+forceLogging = False
 
 initContext :: GConfig -> IO Context
 initContext cf@(GConfig cfg) = do
@@ -215,9 +215,12 @@ stateFromFen (Pos fen) c h es = posToState (posFromFen fen) c h es
 movingColor :: Pos -> Color
 movingColor fen
     | Pos str <- fen
-        = case head . head . tail $ words str of
-              'w' -> White
-              _   -> Black
+        = case words str of
+              _ : (c:_) : _ -> case c of
+                                 'w' -> White
+                                 'b' -> Black
+                                 _   -> error $ "Wrong fen: " ++ str
+              _ -> error $ "Wrong fen: " ++ str
     | otherwise = White     -- startposition
 
 doGo :: [GoCmds] -> CtxIO ()
@@ -304,15 +307,11 @@ startSearchThread tim tpm mtg dpt = do
             ctx <- ask
             case logger ctx of
                 Just _  -> ctxLog "Error" mes
-                Nothing -> do
-                    -- let efname = "Abulafia_" ++ show (strttm ctx) ++ "_err.txt"
-                    let efname = "Abulafia_err.txt"
-                        efcont = unlines [idName, mes]
-                    liftIO $ writeFile efname efcont
+                Nothing -> return ()
+            lift $ collectError mes
             answer $ infos mes
             liftIO $ threadDelay $ 50*1000 -- give time to send the ans
 
--- ctxCatch :: CE.Exception e => CtxIO a -> (e -> CtxIO a) -> CtxIO a
 ctxCatch :: CtxIO a -> (CE.SomeException -> CtxIO a) -> CtxIO a
 ctxCatch a f = do
     ctx <- ask
@@ -428,8 +427,8 @@ answer s = do
 
 -- Version and suffix:
 progVersion, progVerSuff, progLogName :: String
-progVersion = "0.61"
-progVerSuff = "mlistrs"
+progVersion = "0.62"
+progVerSuff = "mlist"
 
 progLogName = "abulafia" ++ "-" ++ progVersion
                  ++ if null progVerSuff then ""
@@ -521,3 +520,12 @@ nps n = "info nps " ++ show n
 
 infos :: String -> String
 infos s = "info string " ++ s
+
+-- Append error info to error file:
+collectError :: String -> IO ()
+collectError mes = do
+    let efname = "Abulafia_collected_errors.txt"
+    tm <- currentSecs
+    ef <- openFile efname AppendMode
+    hPutStrLn ef $ show tm ++ " " ++ idName ++ ": " ++ mes
+    hClose ef

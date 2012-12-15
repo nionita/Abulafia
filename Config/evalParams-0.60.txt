@@ -1,0 +1,21 @@
+-- Modified am 30.09.2012 (from evalParams-0.60-ok.txt)
+materialDiff = 1.0
+bishopPair = 50.070371493661504
+redundanceRook = -5.26887663964692
+nrCorrection = 0.669778849836294
+rookPawn = -9.888819347785683
+kingSafe = 0.3225007334093164
+kingOpenOwn = -0.6552675494900765
+kingOpenAdv = 0.52343135085105
+kingCenter = -10.77643074729342
+lastLinePenalty = 3.617161465897031
+mobilityKnight = 5.644519483056669
+mobilityBishop = 2.5622739587602634
+mobilityRook = 4.3135305399143
+mobilityQueen = 0
+centerAttacs = 8.982201602208546
+passPawnBonus = 12.093304919988974
+passPawn4 = 58.75156976454378
+passPawn5 = 96.26497695849278
+passPawn6 = 129.50795651817745
+passPawn7 = 258.38419361311463

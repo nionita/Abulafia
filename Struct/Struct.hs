@@ -72,7 +72,7 @@ data TabCont = Empty
              deriving (Eq, Show)
 
 data MyPos = MyPos {
-    basicPos :: BasicPos,	-- should not be strict here
+    basicPos :: !BasicPos,	-- should not be strict here
     zobkey :: !ZKey,	-- hash key
     mater :: !Int,	-- material balance
     white, occup, kings, pawns :: !BBoard,	-- further heavy used bitboards computed for efficiency

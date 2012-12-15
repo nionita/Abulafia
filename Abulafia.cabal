@@ -7,7 +7,7 @@ Name:                Abulafia
 -- The package version. See the Haskell package versioning policy
 -- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
 -- standards guiding when and how versions should be incremented.
-Version:             0.61
+Version:             0.62
 
 -- A short (one-line) description of the package.
 Synopsis:            Chess engine
@@ -46,6 +46,25 @@ Flag Profile
   Description:	Enables profile support
   Default:	False
 
+Executable Abulafia
+  Main-is:	Main/MainAbulafia.hs
+  Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
+                 random, stream-fusion, directory, transformers
+  GHC-Options: -O2 -Wall
+               -funbox-strict-fields -threaded -rtsopts
+               -fspec-constr-count=24
+               -funfolding-use-threshold=32
+               -ddump-simpl -ddump-to-file -dsuppress-all -dsuppress-uniques
+               -- -ddump-cmm
+  if flag(profile)
+    C-sources: Cbits/rts_hooksp.c
+    -- GHC-Options: -auto-all
+    -- GHC-Options: -auto-all -with-rtsopts="-p -hc -smemop.txt"
+  else
+    -- C-sources: Cbits/rts_hooks.c
+    -- GHC-Options: -with-rtsopts=-N2 -M256m -H128m
+    GHC-Options: -with-rtsopts=-N3
+
 Executable VizGraph
   Main-is:       Main/VizGraph.hs
   Build-depends: base >= 4
@@ -55,21 +74,21 @@ Executable PlotEvolve
   Main-is:	Main/EvolveToPlot.hs
   Build-depends:	base >= 4, filepath, regex-compat
 
--- Executable FixPlayFen
---   Main-is:	Main/MainFixPlayFen.hs
---   Build-depends: base >= 4, array, mtl, parsec, transformers
---   GHC-Options: -O2 -Wall
---                -funbox-strict-fields -threaded -rtsopts
---                -fspec-constr-count=4
---                -funfolding-use-threshold=32
---                -- -fext-core
---   if flag(profile)
---     GHC-Options: -auto-all
+Executable FixPlayFen
+  Main-is:	Main/MainFixPlayFen.hs
+  Build-depends: base >= 4, array, mtl, parsec, transformers, vector-algorithms, primitive
+  GHC-Options: -O2 -Wall
+               -funbox-strict-fields -threaded -rtsopts
+               -fspec-constr-count=4
+               -funfolding-use-threshold=32
+               -- -fext-core
+  if flag(profile)
+    GHC-Options: -fprof-auto-top
 
-Executable BenchFixPlayFen
-  Main-is:	Tests/TestFixPlayFen.hs
-  Build-depends:	base >= 4, array, mtl, parsec, criterion
-  GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=24 -funfolding-use-threshold=32
+-- Executable BenchFixPlayFen
+--   Main-is:	Tests/TestFixPlayFen.hs
+--   Build-depends:	base >= 4, array, mtl, parsec, criterion
+--   GHC-Options: -O2 -funbox-strict-fields -threaded -rtsopts -fspec-constr-count=24 -funfolding-use-threshold=32
 
 Executable BenchTransTab
   Main-is:	Tests/TestTransTab.hs
@@ -82,40 +101,6 @@ Executable Evolve
   Main-is:	Main/MainEvolve.hs
   Build-depends: base >= 4, process, filepath, bytestring, old-locale
   GHC-Options:	-O2 -Wall -threaded -rtsopts
-
-Executable Abulafia
-  Main-is:	Main/MainAbulafia.hs
-  Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
-                 random, stream-fusion, directory, transformers,
-                 vector-algorithms, primitive
-  -- extensions:  NoMonomorphismRestriction
-  GHC-Options: -O2 -Wall
-               -funbox-strict-fields -threaded -rtsopts
-               -fspec-constr-count=24
-               -funfolding-use-threshold=32
-  if flag(profile)
-    C-sources: Cbits/rts_hooksp.c
-    -- GHC-Options: -auto-all
-    -- GHC-Options: -auto-all -with-rtsopts="-p -hc -smemop.txt"
-  else
-    -- C-sources: Cbits/rts_hooks.c
-    -- GHC-Options: -with-rtsopts=-N2 -M256m -H128m
-    GHC-Options: -with-rtsopts=-N3
-                 -ddump-simpl
-                 -ddump-to-file
-                 -dsuppress-all
-                 -dsuppress-uniques
-
-Executable TestMoveList
-  Main-is: Tests/TestMoveList.hs
-  Build-depends: base >= 4, array, old-time, containers, mtl, parsec, vector,
-                 random, stream-fusion, directory, transformers,
-                 vector-algorithms, primitive
-  -- extensions:  NoMonomorphismRestriction
-  GHC-Options: -O2
-               -funbox-strict-fields
-               -fspec-constr-count=24
-               -funfolding-use-threshold=32
 
 -- Executable LearnSTS
 --   Main-is:             Tests/LearnSTS.hs

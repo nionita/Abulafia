@@ -12,7 +12,7 @@ module Moves.Base (
     useHash,
     staticVal0, mateScore,
     showMyPos,
-    nextlev, nearmate, special
+    nearmate, special
 ) where
 
 import Data.Array.IArray
@@ -20,7 +20,7 @@ import Debug.Trace
 import Control.Exception (assert)
 import Data.Bits
 import Data.List
-import Control.Monad.State.Lazy
+import Control.Monad.State
 import Data.Ord (comparing)
 import qualified Data.IntSet as S
 import System.Random
@@ -37,10 +37,6 @@ import Eval.Eval
 import Moves.ShowMe
 import Moves.History
 import Moves.MoveList
-
-{-# INLINE nextlev #-}
-nextlev :: Int -> Int
-nextlev = negate
 
 {-# INLINE nearmate #-}
 nearmate :: Int -> Bool
@@ -70,7 +66,7 @@ instance CtxMon m => Node (Game r m) where
     store = storeSearch
     {-# INLINE curNodes #-}
     curNodes = getNodes
-    inform = SM.lift . tellCtx
+    inform = lift . tellCtx
     choose  = choose0
     timeout = isTimeout
 
@@ -250,7 +246,7 @@ doMove real m qs = do
     statNodes   -- when counting all visited nodes
     s  <- get
     -- let pc = if null (stack s) then error "doMove" else head $ stack s
-    let !pc = head $ stack s
+    let !pc = if null (stack s) then error "doMove null stack" else head (stack s)
         !m1 = if real then checkCastle (checkEnPas m pc) pc else m
         !kc = case tabla pc (toSquare m1) of
                   Busy _ King -> True
@@ -421,7 +417,7 @@ betaMove0 good _ absdp m = do	-- dummy: depth
 {--
 showChoose :: CtxMon m => [] -> Game m ()
 showChoose pvs = do
-    mapM_ (\(i, (s, pv)) -> SM.lift $ ctxLog "Info"
+    mapM_ (\(i, (s, pv)) -> lift $ ctxLog "Info"
                                  $ "choose pv " ++ show i ++ " score " ++ show s ++ ": " ++ show pv)
                  $ zip [1..] pvs
     return $ if null pvs then error "showChoose" else head pvs
@@ -429,7 +425,7 @@ showChoose pvs = do
 
 -- Choose between almost equal (root) moves
 choose0 :: CtxMon m => Bool -> [(Int, [Move])] -> Game r m (Int, [Move])
-choose0 True pvs = return $ head pvs
+choose0 True pvs = return $ if null pvs then error "Empty choose!" else head pvs
 choose0 _    pvs = case pvs of
     p1 : [] -> return p1
     p1 : ps -> do
@@ -445,9 +441,9 @@ choose0 _    pvs = case pvs of
     []      -> return (0, [])	-- just for Wall
 
 logMes :: CtxMon m => String -> Game r m ()
-logMes s = SM.lift $ tellCtx . LogMes $ s
+logMes s = lift $ tellCtx . LogMes $ s
 
 isTimeout :: CtxMon m => Int -> Game r m Bool
 isTimeout msx = do
-    curr <- SM.lift timeCtx
+    curr <- lift timeCtx
     return $! msx < curr

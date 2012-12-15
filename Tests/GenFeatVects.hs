@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Control.Monad
-import Control.Monad.State (evalState)
+import Control.Monad.State	-- (evalState)
 import qualified Data.ByteString.Char8 as B
 -- import System.Time
 import System.Environment (getArgs)
