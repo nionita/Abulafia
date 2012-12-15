@@ -1,5 +1,7 @@
-{-# LANGUAGE TypeSynonymInstances, MultiParamTypeClasses, BangPatterns,
-    FlexibleInstances
+{-# LANGUAGE TypeSynonymInstances,
+             MultiParamTypeClasses,
+             BangPatterns,
+             FlexibleInstances
   #-}
 module Uci.UciGlue (
     bestMoveCont

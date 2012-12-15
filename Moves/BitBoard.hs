@@ -47,7 +47,8 @@ bitScanDatabase = array (0, 63) paar
 -- Already optimized!
 popCount :: BBoard -> Int
 {--
-popCount bb = fromIntegral $ case  bb         - ((bb `shiftR` 1)  .&. k1) of { x1 ->
+popCount0 bb = fromIntegral $ case  bb         - ((bb `shiftR` 1)  .&. k1) of { x1 ->
+>>>>>>> 0fe61acc9cbee9219f45f95fb2cd0fe2ed4fedd1
                              case (x1 .&. k2) + ((x1 `shiftR` 2)  .&. k2) of { x2 ->
                              case (x2         +  (x2 `shiftR` 4)) .&. k4  of { x3 ->
                              case (x3 * kf) `shiftR` 56 of { x4 -> x4 }}}}
