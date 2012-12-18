@@ -47,6 +47,7 @@ class Monad m => Node m where
 
 data DoResult = Exten !Int	-- return mit extension (evtl 0)
               | Final !Int	-- return with a final score (probably draw)
+              | Illegal		-- illegal move
 
 data Comm = LogMes String
           | BestMv Int Int Int [Move]

@@ -21,7 +21,8 @@ lsb b = b .&. (-b)
 
 -- {-# INLINE exactOne #-}
 exactOne :: BBoard -> Bool
-exactOne !b = b /= 0 && b `less` lsb b == 0
+-- exactOne !b = b /= 0 && b `less` lsb b == 0
+exactOne = (==1) . B.popCount
 
 {-# INLINE less #-}
 less :: BBoard -> BBoard -> BBoard
