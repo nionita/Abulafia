@@ -96,7 +96,7 @@ maxFutilDepth = 3
 -- C:  75 == n1ns
 -- D: 100
 -- E: 125
-futilMs = 125	-- margin for depth 1
+futilMs = 275	-- margin for depth 1
 futilMv = 150	-- suplementary margin for every further depth
 futilMargins :: Int -> Int
 futilMargins d = futilMs - futilMv + d*futilMv
@@ -410,6 +410,10 @@ scoreToExtern sc de
     | nearmate sc = if sc > 0 then sc - de else sc + de
     | otherwise   = sc
 
+legalResult :: DoResult -> Bool
+legalResult Illegal = False
+legalResult _       = True
+
 -- This is the inner loop of the PV search of the root, executed at root once per possible move
 -- See the parameter
 -- Returns: ...flag if it was a beta cut and new status
@@ -430,19 +434,22 @@ pvInnerRoot b d nst e = do
          -- lift $ logmes $ "Search root move " ++ show e ++ " a = " ++ show a ++ " b = " ++ show b
          -- do the move
          exd <- {-# SCC "newNode" #-} lift $ doEdge e False
-         nn <- newNode
-         viztreeDown nn e
-         modify $ \s -> s { absdp = absdp s + 1 }
-         s <- case exd of
-                  Exten exd' -> pvInnerRootExten b d (special e) exd' nst
-                  Final sco  -> return $! pathFromScore "Final" (-sco)
-         -- undo the move
-         lift $ undoEdge
-         viztreeUp nn e (pathScore s)
-         modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
-         s' <- checkPath nst d "cpl 1" $ addToPath e s
-         pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
-         checkFailOrPVRoot (stats old) b d e s' nst
+         if legalResult exd
+            then do
+                nn <- newNode
+                viztreeDown nn e
+                modify $ \s -> s { absdp = absdp s + 1 }
+                s <- case exd of
+                         Exten exd' -> pvInnerRootExten b d (special e) exd' nst
+                         Final sco  -> return $! pathFromScore "Final" (-sco)
+                -- undo the move
+                lift $ undoEdge
+                viztreeUp nn e (pathScore s)
+                modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
+                s' <- checkPath nst d "cpl 1" $ addToPath e s
+                pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+                checkFailOrPVRoot (stats old) b d e s' nst
+            else return (False, nst)
 
 pvInnerRootExten :: Node m => Path -> Int -> Bool -> Int -> NodeState -> Search m Path
 pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
@@ -803,22 +810,25 @@ pvInnerLoop b d prune nst e = do
          old <- get
          pindent $ "-> " ++ show e
          exd <- {-# SCC "newNode" #-} lift $ doEdge e False	-- do the move
-         nn <- newNode
-         viztreeDown nn e
-         modify $ \s -> s { absdp = absdp s + 1 }
-         s <- case exd of
-                Exten exd' -> do
-                    let speci = special e
-                    if prune && exd' == 0 && not speci -- don't prune special or extended
-                       then return $! onlyScore $! cursc nst	-- prune, return a
-                       else pvInnerLoopExten b d speci exd' nst
-                Final sco  -> return $! pathFromScore "Final" (-sco)
-         lift undoEdge	-- undo the move
-         viztreeUp nn e (pathScore s)
-         modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
-         s' <- checkPath nst d "cpl 8" $ addToPath e s
-         pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
-         checkFailOrPVLoop (stats old) b d e s' nst
+         if legalResult exd
+            then do
+                nn <- newNode
+                viztreeDown nn e
+                modify $ \s -> s { absdp = absdp s + 1 }
+                s <- case exd of
+                         Exten exd' -> do
+                           let speci = special e
+                           if prune && exd' == 0 && not speci -- don't prune special or extended
+                              then return $! onlyScore $! cursc nst	-- prune, return a
+                              else pvInnerLoopExten b d speci exd' nst
+                         Final sco  -> return $! pathFromScore "Final" (-sco)
+                lift undoEdge	-- undo the move
+                viztreeUp nn e (pathScore s)
+                modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
+                s' <- checkPath nst d "cpl 8" $ addToPath e s
+                pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+                checkFailOrPVLoop (stats old) b d e s' nst
+             else return (False, nst)
 
 -- This part for the zero window search
 pvInnerLoopZ :: Node m
@@ -836,22 +846,25 @@ pvInnerLoopZ b d prune nst e = do
          old <- get
          pindent $ "-> " ++ show e
          exd <- {-# SCC "newNode" #-} lift $ doEdge e False	-- do the move
-         nn <- newNode
-         viztreeDown nn e
-         modify $ \s -> s { absdp = absdp s + 1 }
-         s <- case exd of
-                Exten exd' -> do
-                    let speci = special e
-                    if prune && exd' == 0 && not speci -- don't prune special or extended
-                       then return $! onlyScore $! cursc nst	-- prune, return a
-                       else pvInnerLoopExtenZ b d speci exd' nst
-                Final sco  -> return $! pathFromScore "Final" (-sco)
-         lift undoEdge	-- undo the move
-         viztreeUp nn e (pathScore s)
-         modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
-         s' <- checkPath nst d "cpl 8" $ addToPath e s
-         pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
-         checkFailOrPVLoopZ (stats old) b d e s' nst
+         if legalResult exd
+            then do
+                nn <- newNode
+                viztreeDown nn e
+                modify $ \s -> s { absdp = absdp s + 1 }
+                s <- case exd of
+                         Exten exd' -> do
+                           let speci = special e
+                           if prune && exd' == 0 && not speci -- don't prune special or extended
+                              then return $! onlyScore $! cursc nst	-- prune, return a
+                              else pvInnerLoopExtenZ b d speci exd' nst
+                         Final sco  -> return $! pathFromScore "Final" (-sco)
+                lift undoEdge	-- undo the move
+                viztreeUp nn e (pathScore s)
+                modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
+                s' <- checkPath nst d "cpl 8" $ addToPath e s
+                pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
+                checkFailOrPVLoopZ (stats old) b d e s' nst
+            else return (False, nst)
 
 reserveExtension :: Node m => Int -> Int -> Search m Int
 reserveExtension !uex !exd
@@ -1216,25 +1229,28 @@ pvQInnerLoop !b c !a e = do
          -- here: delta pruning: captured piece + 200 > a? then go on, else return
          -- qindent $ "-> " ++ show e
          r <- {-# SCC "newNodeQS" #-} lift $ doEdge e True
-         nn <- newNodeQS
-         viztreeDown nn e
-         !sc <- case r of
-                    Final sc -> return (-sc)
-                    _        -> do
-                        modify $ \s -> s { absdp = absdp s + 1 }
-                        !s <- pvQSearch (-b) (-a) c
-                        modify $ \s -> s { absdp = absdp s - 1 }	-- don't care about usedext here
-                        return (-s)
-         lift $ undoEdge
-         viztreeUp nn e sc
-         -- qindent $ "<- " ++ show e ++ " (" ++ show s ++ ")"
-         if sc >= b
-            then return (True, b)
-            else do
-                !abrt' <- gets abort
-                if sc > a
-                   then return (abrt', sc)
-                   else return (abrt', a)
+         if legalResult r
+            then do
+                nn <- newNodeQS
+                viztreeDown nn e
+                !sc <- case r of
+                           Final sc -> return (-sc)
+                           _        -> do
+                             modify $ \s -> s { absdp = absdp s + 1 }
+                             !s <- pvQSearch (-b) (-a) c
+                             modify $ \s -> s { absdp = absdp s - 1 }	-- don't care about usedext here
+                             return (-s)
+                lift $ undoEdge
+                viztreeUp nn e sc
+                -- qindent $ "<- " ++ show e ++ " (" ++ show s ++ ")"
+                if sc >= b
+                   then return (True, b)
+                   else do
+                       !abrt' <- gets abort
+                       if sc > a
+                          then return (abrt', sc)
+                          else return (abrt', a)
+            else return (False, a)
 
 bestMoveFromHash :: Node m => Search m (Seq Move)
 bestMoveFromHash = do

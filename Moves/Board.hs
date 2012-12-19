@@ -6,7 +6,7 @@ module Moves.Board (
     genmv, genmvT,
     genMoveCapt, genMoveCast, genMoveNCapt, genMoveTransf, genMovePCapt, genMovePNCapt, genMoveFCheck,
     genMoveNCaptToCheck,
-    updatePos, illegalPos,
+    updatePos, kingsOk, checkOk,
     legalMove, alternateMoves, nonCapt,
     doFromToMove, reverseMoving
     ) where
@@ -583,15 +583,15 @@ setPiece sq c f p = p { basicPos = nbp, zobkey = nzob, mater = nmat }
           znew = zobPiece c f sq
           mnew = matPiece c f
 
-illegalPos :: MyPos -> Bool
-illegalPos p = kingsok && checkok
-    where nextmoveblack = (epcas p .&. mvMask) /= 0
-          nextmovewhite = not nextmoveblack
-          whcheck = white p .&. kings p .&. blAttacs p
-          blcheck = black p .&. kings p .&. whAttacs p
-          kingsok = popCount1 (kings p .&. white p) == 1
+kingsOk, checkOk :: MyPos -> Bool
+{-# INLINE kingsOk #-}
+{-# INLINE checkOk #-}
+kingsOk p = popCount1 (kings p .&. white p) == 1
                       && popCount1 (kings p .&. black p) == 1
-          checkok = nextmoveblack && (whcheck /= 0) || nextmovewhite && (blcheck /= 0)
+checkOk p = if nextmovewhite then blincheck == 0 else whincheck == 0
+    where nextmovewhite = (epcas p .&. mvMask) == 0
+          whincheck = white p .&. kings p .&. blAttacs p
+          blincheck = black p .&. kings p .&. whAttacs p
 
 type ChangeAccum = (ZKey, Int)
 

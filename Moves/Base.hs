@@ -198,30 +198,48 @@ doMove real m qs = do
     statNodes   -- when counting all visited nodes
     s  <- get
     -- let pc = if null (stack s) then error "doMove" else head $ stack s
-    let !pc = if null (stack s) then error "doMove null stack" else head (stack s)
+    let (pc:_) = stack s	-- we never saw an empty stack error until now
         !m1 = if real then checkCastle (checkEnPas m pc) pc else m
-        !kc = case tabla pc (toSquare m1) of
-                  Busy _ King -> True
-                  _           -> False
-        !p' = doFromToMove m1 pc { realMove = real }
-        !c = moving p'
-        !kingcapt = illegalPos p' || kc
-        (!sts, feats) = if real then (0, []) else evalState (posEval p' c) (evalst s)
-        !p = p' { staticScore = sts, staticFeats = feats }
-        !dext = if inCheck p || goPromo p m1 then 1 else 0
-    -- when debug $
-    --     lift $ ctxLog "Debug" $ "*** doMove: " ++ showMyPos p
-    -- remis' <- checkRepeatPv p pv
-    -- remis  <- if remis' then return True else checkRemisRules p
-    put s { stack = p : stack s }
-    remis <- if qs then return False else checkRemisRules p'
-    if kingcapt
-       then return $ Final mateScore
-       else if remis
-               then return $ Final 0
-               else -- do
-                    -- case p of _ -> return ()
-                    return $ Exten dext
+        -- Moving a non-existent piece?
+        il = case tabla pc (fromSquare m1) of
+                 Busy _ _ -> False
+                 _        -> True
+        -- Capturing one king?
+        kc = case tabla pc (toSquare m1) of
+                 Busy _ King -> True
+                 _           -> False
+        p' = doFromToMove m1 pc { realMove = real }
+        kok = kingsOk p'
+        cok = checkOk p'
+    -- If the move is real and one of those conditions occur,
+    -- then we are really in trouble...
+    if not real && (il || kc || not kok)
+        then do
+            logMes $ "Illegal move or position: move = " ++ show m
+                     ++ ", il = " ++ show il ++ ", kc = " ++ show kc ++ "\n"
+            when (not kok)
+                $ logMes $ "Illegal position (after the move):\n" ++ showMyPos p'
+            logMes $ "Stack:\n" ++ showStack 3 (stack s)
+            -- After an illegal result there must be no undo!
+            return Illegal
+        else if not cok
+                then return Illegal
+                else do
+                    let !c = moving p'
+                        (!sts, feats) = if real
+                                           then (0, [])
+                                           else evalState (posEval p' c) (evalst s)
+                        !p = p' { staticScore = sts, staticFeats = feats }
+                        dext = if inCheck p || goPromo p m1 then 1 else 0
+                    -- when debug $
+                    --     lift $ ctxLog "Debug" $ "*** doMove: " ++ showMyPos p
+                    -- remis' <- checkRepeatPv p pv
+                    -- remis  <- if remis' then return True else checkRemisRules p
+                    put s { stack = p : stack s }
+                    remis <- if qs then return False else checkRemisRules p'
+                    if remis
+                       then return $ Final 0
+                       else return $ Exten dext
 
 doNullMove :: CtxMon m => Game r m ()
 doNullMove = do
@@ -296,7 +314,7 @@ staticVal0 = do
     s <- get
     t <- getPos
     let !c = moving t
-        !stSc = if illegalPos t
+        !stSc = if not (kingsOk t && checkOk t)
                    then error $ "Wrong position, pos stack:\n" ++ concatMap showMyPos (stack s)
                    else staticScore t
         -- Here we actually don't need genMoves - it would be enough to know that
@@ -399,3 +417,6 @@ isTimeout :: CtxMon m => Int -> Game r m Bool
 isTimeout msx = do
     curr <- lift timeCtx
     return $! msx < curr
+
+showStack :: Int -> [MyPos] -> String
+showStack n = concatMap (\p -> showMyPos p) . take n
