@@ -8,7 +8,7 @@ module Struct.Struct (
          tabla, emptyPos, isReversible, remis50Moves, set50Moves, reset50Moves, addHalfMove,
          fromSquare, toSquare, isSlide, isDiag, isKkrq,
          moveIsNormal, moveIsCastle, moveIsTransf, moveIsEnPas,
-         moveCastleFromTo, moveTransfPiece, moveEnPasDel, makeEnPas,
+         moveColor, moveTransfPiece, moveEnPasDel, makeEnPas,
          makeCastleFor, makeTransf, makeSpecial, moveIsSpecial, moveFromTo,
          activateTransf, fromColRow, checkCastle, checkEnPas, toString
          -- isPawnMoving, isKingMoving
@@ -263,27 +263,27 @@ moving !p = case epcas p .&. mvMask of
                0 -> White
                _ -> Black
 
--- Normal move (from - to)
-moveIsNormal :: Move -> Bool
-moveIsNormal (Move m) = m .&. 0x3000 == 0
-
 -- The move is coded in currently 19 bits (the lower of a Word32)
 -- So we need a few functions to handle them
+-- With the new coding we actually need only 16 bits, but
+-- the "special" attribute does not fit it, so we keep it
+-- (on the same place, bit 18)
+-- It can be replaced in the future with some function
+
+-- Normal move (from - to)
+moveIsNormal :: Move -> Bool
+moveIsNormal (Move m) = m .&. 0xE000 == 0
+
+-- For which color is the move:
+-- But, as for now, we don't set the move color! (And don't use it too)
+moveColor :: Move -> Color
+moveColor (Move m) = case testBit m 12 of
+                         False -> White
+                         _     -> Black
 
 -- Castles
--- Codes are: 0 - kingside, white, 1 - queenside, white,
---            2 - kingside, black, 3 - queenside, black
-castleCodes, castleKing :: Array Int (Square, Square)
-castleCodes = listArray (0, 3) [(7, 5), (0, 3), (63, 61), (56, 59)]
-castleKing  = listArray (0, 3) [(4, 6), (4, 2), (60, 62), (60, 58)]
-
 moveIsCastle :: Move -> Bool
-moveIsCastle (Move m) = m .&. 0x3000 == 0x1000
-
-moveCastleFromTo :: Move -> (Square, Square)
--- moveCastleFromTo (Move m) = castleCodes `unsafeAt` fromIntegral x
-moveCastleFromTo (Move m) = castleCodes ! fromIntegral x
-    where x = (m `shiftR` 14) .&. 0x03
+moveIsCastle (Move w) = w .&. 0xE000 == 0x8000
 
 makeCastleFor :: Color -> Bool -> Move
 makeCastleFor White True  = makeCastle 0
@@ -291,43 +291,44 @@ makeCastleFor White False = makeCastle 1
 makeCastleFor Black True  = makeCastle 2
 makeCastleFor Black False = makeCastle 3
 
+-- Codes are: 0 - kingside, white, 1 - queenside, white,
+--            2 - kingside, black, 3 - queenside, black
+castleKing :: UArray Int Word32
+castleKing  = listArray (0, 3)
+                [uncurry encodeFromTo ft `setBit` 15 | ft <- [(4, 6), (4, 2), (60, 62), (60, 58)]]
+
+{-# INLINE makeCastle #-}
 makeCastle :: Int -> Move
--- makeCastle cd = Move $ movetype 1 $ code cd $ uncurry encodeFromTo $ castleKing `unsafeAt` cd
-makeCastle cd = Move $ movetype 1 $ code cd $ uncurry encodeFromTo $ castleKing ! cd
+makeCastle = Move . unsafeAt castleKing
 
 -- En passant:
-enpasCodes :: UArray Int Square
-enpasCodes = listArray (0, 15) $ [16..23] ++ [40..47]
-enpasRev   :: UArray Square Int
-enpasRev   = array (0, 47) $ zip [16..23] [0..] ++ zip [40..47] [8..]
-
 moveIsEnPas :: Move -> Bool
-moveIsEnPas (Move m) = m .&. 0x3000 == 0x2000
+moveIsEnPas (Move w) = w .&. 0x6000 == 0x4000
 
+-- The location of the adverse pawn to delete:
 moveEnPasDel :: Move -> Square
--- moveEnPasDel (Move m) = enpasCodes `unsafeAt` fromIntegral x
-moveEnPasDel (Move m) = enpasCodes ! fromIntegral x
-    where x = (m `shiftR` 14) .&. 0x0F
+moveEnPasDel m@(Move w) = if testBit w 15 then src + 1 else src - 1
+    where src = fromSquare m
 
-makeEnPas f t del = Move $ movetype 2 $ code cd $ encodeFromTo f t
-    -- where cd = enpasRev `unsafeAt` del
-    where cd = enpasRev ! del
+makeEnPas f t del = Move w2
+    where w1 = encodeFromTo f t `setBit` 14
+          w2 = if del == f - 1 then w1 else w1 `setBit` 15
 
--- Transformations:
+-- Promotions:
 transfCodes :: Array Int Piece
 transfCodes = listArray (0, 3) [Knight, Bishop, Rook, Queen]
-transfRev :: Array Piece Int
+transfRev :: Array Piece Word32
 transfRev   = array (Knight, Queen) [(Knight, 0), (Bishop, 1), (Rook, 2), (Queen, 3)]
 
 moveIsTransf :: Move -> Bool
-moveIsTransf (Move m) = m .&. 0x3000 == 0x3000
+moveIsTransf (Move w) = testBit w 13
 
--- moveTransfPiece (Move m) = transfCodes `unsafeAt` fromIntegral x
-moveTransfPiece (Move m) = transfCodes ! fromIntegral x
-    where x = (m `shiftR` 14) .&. 0x03
+moveTransfPiece (Move w) = transfCodes ! fromIntegral x
+    where x = (w `shiftR` 14) .&. 0x03
 
 makeTransf :: Piece -> Square -> Square -> Move
-makeTransf p f t = Move $ movetype 3 $ code (transfRev ! p) $ encodeFromTo f t
+makeTransf p f t = Move $ setBit 13 $ fromIntegral
+                        $ code (transfRev ! p) $ encodeFromTo f t
 
 -- General functions for move encoding / decoding
 encodeFromTo :: Square -> Square -> Word32
@@ -337,8 +338,8 @@ encodeFromTo f t = fromIntegral t .|. (fromIntegral f `shiftL` 6)
 movetype :: Int -> Word32 -> Word32
 movetype t w = fromIntegral (t `shiftL` 12) .|. w
 
-code :: Int -> Word32 -> Word32
-code c w = fromIntegral (c `shiftL` 14) .|. w
+code :: Word32 -> Word32 -> Word32
+code c w = (c `shiftL` 14) .|. w
 
 makeSpecial :: Move -> Move
 makeSpecial (Move m) = Move $ m `setBit` 18
