@@ -4,13 +4,15 @@ module Main (main) where
 
 import Prelude hiding (catch)
 import Control.Concurrent
-import Control.Concurrent.MVar
-import Control.Concurrent.Chan
+import Control.Concurrent.Async
+-- import Control.Concurrent.MVar
+-- import Control.Concurrent.Chan
 import Control.Exception
 import Control.Monad (forM, forM_, liftM, when)
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.State.Lazy
-import Data.List (intersperse, isPrefixOf, sortBy, groupBy)
+import Data.List (intersperse, isPrefixOf, sortBy, groupBy, delete)
+import qualified Data.Map as M
 import Data.Maybe
 import Data.Ord (comparing)
 import Data.Ratio
@@ -87,8 +89,7 @@ main = do
         mxt = 3
     putStrLn $ "Threads: " ++ show mxt
     pstate <- initState evDir evName mxt
-    rezChan <- newChan
-    runStateT evolveOrStop EvSt { stPers = pstate, stChan = rezChan,
+    runStateT evolveOrStop EvSt { stPers = pstate, stAsync = M.empty,
                                   stMaxThr = mxt, stCurThr = 0 }
 
 initState :: FilePath -> Maybe String -> Int -> IO EvolvePersistentState
@@ -282,7 +283,7 @@ eventName = id
 -- eventDir :: Event -> String
 -- eventDir = (outDir </>) . eventName
 
-oneMatch :: Event -> Bool -> Player -> Player -> IO (Maybe (Int, Int, Int))
+oneMatch :: Event -> Bool -> Player -> Player -> IO (Int, Int, Int)
 oneMatch event pgn p1 p2 = do
     cdir <- getCurrentDirectory
     let edir = cdir </> currentDir
@@ -306,9 +307,9 @@ oneMatch event pgn p1 p2 = do
         let es = ioeGetErrorString e
         putStrLn $ "Error in everyLine: " ++ es
         terminateProcess ph
-        return Nothing
+        throwIO e
 
-everyLine _ r 0 = return $ Just r
+everyLine _ r 0 = return r
 everyLine h r g = do
     lin <- hGetLine h
     -- putStrLn $ "Got: " ++ lin
@@ -372,47 +373,67 @@ tourStep trn
         let tostart = stMaxThr evst - stCurThr evst
         -- lift $ putStrLn $ "Max " ++ show (stMaxThr evst) ++ " crt " ++ show (stCurThr evst)
         --                     ++ " to start " ++ show tostart
-        lift $ startNewGames (event trn) tostart waiting (players trn) (stChan evst)
+        asyncs' <- lift $ startNewGames (event trn) tostart waiting (players trn)
         let (playing'', waiting') = splitAt tostart waiting
             playing' = map nowPlaying playing''
             trn' = trn { games = done ++ playing ++ waiting' ++ playing' }
             started = length playing'
+            asyncs = stAsync evst `M.union` asyncs'
         -- lift $ putStrLn $ "Playing list: " ++ show (playing ++ playing')
         -- wait for one of the games to finish
-        ((i, j), mrez) <- lift $ readChan (stChan evst)
-        put evst { stCurThr = stCurThr evst + started - 1 }
-        let pl1 = players trn !! i
-            pl2 = players trn !! j
-            mfg = findGame i j $ playing ++ playing'
-        -- lift $ putStrLn $ "Received " ++ show i ++ " / " ++ show j
-        case mfg of
-            Nothing -> lift $ throwIO GameNotFoundException
-            Just (game, stillplaying) -> do
-                -- lift $ putStrLn $ "Game: " ++ show game
-                -- lift $ putStrLn $ "Still: " ++ show stillplaying
-                lift $ putStrLn $ "Match " ++ pl1 ++ " against " ++ pl2 ++ " ended: " ++ show mrez
-                let rest = done ++ stillplaying ++ waiting'
-                case mrez of
-                    Nothing -> return (False, Just trn' { games = game { result = ToPlay }  : rest })
-                    Just rz -> return (False, Just trn' { games = game { result = Done rz } : rest })
+        (a, eir) <- lift $ waitAnyCatch $ M.keys asyncs
+        let mij = M.lookup a asyncs	-- which game finnished?
+        case mij of
+            Nothing -> do
+                lift $ putStrLn $ "Async not found in map, ignored"
+                put evst { stCurThr = stCurThr evst + started,
+                           stAsync = M.delete a asyncs }
+                return (False, Just trn')
+            Just (i, j) -> do
+                let pl1 = players trn !! i
+                    pl2 = players trn !! j
+                    mfg = findGame i j $ playing ++ playing'
+                -- lift $ putStrLn $ "Received " ++ show i ++ " / " ++ show j
+                case mfg of
+                    Nothing -> lift $ do
+                        putStrLn $ "Pair " ++ show i ++ ", " ++ show j ++ " not playing"
+                        throwIO GameNotFoundException
+                    Just (game, stillplaying) -> do
+                        -- lift $ putStrLn $ "Game: " ++ show game
+                        -- lift $ putStrLn $ "Still: " ++ show stillplaying
+                        let rest = done ++ stillplaying ++ waiting'
+                        ngame <- case eir of
+                            Left  e    -> do
+                               lift $ putStrLn $ "async ended with exception: " ++ show e
+                               return game { result = ToPlay }
+                            Right mrez -> do
+                               lift $ putStrLn $ "Match " ++ pl1 ++ " against " ++ pl2
+                                          ++ " ended: " ++ show mrez
+                               case mrez of
+                                   Nothing -> return game { result = ToPlay }
+                                   Just rz -> return game { result = Done rz }
+                        put evst { stCurThr = stCurThr evst + started - 1,
+                                   stAsync = M.delete a asyncs }
+                        return (False, Just trn' { games = ngame : rest })
     where (done, playing, waiting) = categorize $ games trn
           nowPlaying g = g { result = Playing }
 
-startNewGames :: Event -> Int -> [Pairing] -> [Player] -> Chan ResReturn -> IO ()
-startNewGames ev n ps pls chn = do
-    let ps' = take n ps
-    forM_ ps' $ \(Pairing (i, j) _) -> do
+startNewGames :: Event -> Int -> [Pairing] -> [Player]
+              -> IO (M.Map (Async ResReturn) (Int, Int))
+startNewGames ev n ps pls = do
+    as <- forM (take n ps) $ \(Pairing (i, j) _) -> do
         let pl1 = pls !! i
             pl2 = pls !! j
             pgn = i == 6 || j == 6
         stime <- getClockTime >>= toCalendarTime
                               >>= return . formatCalendarTime defaultTimeLocale "%H:%M:%S"
         putStrLn $ stime ++ ": playing " ++ pl1 ++ " against " ++ pl2
-        forkIO $ do
-            mrez <- timeout (timeOut*1000*1000) (oneMatch ev pgn pl1 pl2)
-            case mrez of
-                Nothing -> writeChan chn ((i, j), Nothing)
-                Just r  -> writeChan chn ((i, j), r)
+        a <- async $ (timeout to $ oneMatch ev pgn pl1 pl2) `catch` retNothing
+        return (a, (i, j))
+    return $ M.fromList as
+    where to = timeOut*1000*1000
+          retNothing :: SomeException -> IO (Maybe a)
+          retNothing = \_ -> return Nothing
 
 evalTournament :: Tournament -> [(Player, Rational)]
 evalTournament trn
@@ -430,17 +451,6 @@ evalTournament trn
 toPoints (Pairing { pair = (i, j), result = Done (w, l, r) })
     = [(i, 2*w + r), (j, 2*l + r)]
 toPoints _ = []
-
--- Run an IO action with timeout (in microseconds) and default value
--- This was replaced by timeout from System.Timeout - if it works!
-withTimeOut :: IO a -> Int -> a -> IO a
-withTimeOut act to def = do
-    mvar <- newEmptyMVar
-    longtid  <- forkIO (act >>= putMVar mvar)
-    sleeptid <- forkIO (threadDelay to >> putMVar mvar def)
-    rv <- takeMVar mvar
-    forkIO (killThread sleeptid >> killThread longtid)
-    return rv
 
 showConfig cnf comm = comm ++ "\n" ++ lins
     where lins = unlines $ map (\(n, v) -> n ++ " = " ++ show v) $ zip paramNames cnf

@@ -99,7 +99,7 @@ Executable BenchTransTab
 
 Executable Evolve
   Main-is:	Main/MainEvolve.hs
-  Build-depends: base >= 4, process, filepath, bytestring, old-locale
+  Build-depends: base >= 4, process, filepath, bytestring, old-locale, async
   GHC-Options:	-O2 -Wall -threaded -rtsopts
 
 -- Executable LearnSTS
