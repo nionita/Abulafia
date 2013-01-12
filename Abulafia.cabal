@@ -102,6 +102,11 @@ Executable Evolve
   Build-depends: base >= 4, process, filepath, bytestring, old-locale, async
   GHC-Options:	-O2 -Wall -threaded -rtsopts
 
+Executable EvolveSim
+  Main-is:	Main/MainEvolveSim.hs
+  Build-depends: base >= 4, process, filepath, bytestring, old-locale, async
+  GHC-Options:	-O2 -Wall -threaded -rtsopts
+
 -- Executable LearnSTS
 --   Main-is:             Tests/LearnSTS.hs
 --   Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random, stream-fusion, bytestring, directory
