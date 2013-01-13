@@ -33,6 +33,8 @@ import Struct.Status
 import Struct.Evolve
 import Eval.Eval
 
+debug = False
+
 -- Some constants for the evolving environment
 playersDir = "Players"
 gamesDir   = "Games"
@@ -41,33 +43,36 @@ statusFile = "status.txt"
 goonFile   = "running"
 
 -- Some constants for playing one match
-cuteChess = "J:\\Chess\\cutechess-cli-win32\\cutechess-cli.exe"
+cuteChessDir = "J:\\Chess\\cutechess-cli-0.5.1-win32"
+cuteChessCom = cuteChessDir ++ "\\cutechess-cli.exe"
 engPath   = "J:\\AbaAba\\dist\\build\\Abulafia"
 -- Big care here: the running engine should not produce a logfile,
 -- as that would give an error when starting the same engine twice in the same directory
 engine    = "Abulafia_0_62_evo"
-noGames   = 2
-parGames  = "-games " ++ show noGames
-tcMoves   = 20	-- moves
-tcFixTm   = 10	-- seconds
-secPerMv  = 0	-- second per move
+noGames   = 20
+parGames  = "-rounds " ++ show noGames
+tcMoves   = 40	-- moves
+tcFixTm   = 20	-- seconds
+secPerMv  = 0.2	-- second per move
 parTime   = "tc=" ++ show tcMoves ++ "/" ++ show tcFixTm ++ "+" ++ show secPerMv
-otherOpts = "-resign 4 800 -site Sixpack"
+otherOpts = "-pgnin swcr-20.pgn -recover -draw 150 100 -resign 4 800 -site Sixpack"
+expLength :: Int
 expLength = 200	-- expect a maximum game length of so may moves
--- how long to wait for a match
-timeOut   = noGames * 2
-          * (expLength * secPerMv + ((expLength + tcMoves) `div` tcMoves) * tcFixTm)
+-- how long to wait for a match - in milliseconds
+toFact  = 2
+expDur :: Double
+expDur  = fromIntegral expLength * secPerMv * 1000
+              + fromIntegral ((expLength * 1000 `div` tcMoves) * tcFixTm)
+timeOut :: Int
+timeOut = toFact * noGames * round expDur
 ecom  = engPath ++ "\\" ++ engine ++ ".exe"
 -- outDir    = "J:\\AbaAba\\Tests\\Self"
 -- res   = "result_" ++ conf1 ++ "_" ++ conf2 ++ ".pgn"
 resp  = "-pgnout "
 
-peng name first = pos ++ "cp cmd=" ++ ecom ++ " name=" ++ name ++ " arg=" ++ name
-    where pos = if first then "-f" else "-s"
-firstEngine  name = peng name True
-secondEngine name = peng name False
+engSpec name = "-engine cmd=" ++ ecom ++ " name=" ++ name ++ " arg=" ++ name
 
-both dir = "-both dir=" ++ dir ++ " proto=uci " ++ parTime
+each dir = "-each dir=" ++ dir ++ " proto=uci " ++ parTime
 
 -- Parameters for optimisation
 popCount = 12	-- population count (without witness)
@@ -210,7 +215,8 @@ statePrepare = do
         dist  = newDist (evDistrib est) $ mapMaybe (getVect pars) elite
         missing = evPopCount est - length weak
     lift $ do
-        writeTourInfo (event ltour ++ ".txt") selecs
+        writeTourTop (event ltour ++ "-top.txt") selecs
+        writeTourRes (event ltour ++ "-res.txt") (games ltour) (players ltour)
         putStr "Elite:"
         forM_ elite $ \e -> putStr (" " ++ e)
         putStrLn ""
@@ -268,14 +274,31 @@ makeSelectionBase mwit ordl olds = remWitn $ map addOlds ordl
 -- and then renaming
 saveState st = writeFile statusFile $ show st
 
-writeTourInfo fil evalt = do
+writeTourTop fil evalt = do
     let info = unlines
-             $ map (\(i, (p, (pt, pg))) -> printf "%2d. %-30s %4.1g %6.1g" i p (f pt) (f pg))
+             $ map (\(i, (pl, (pt, pg)))
+                      -> printf "%2d. %-30s %5.1g %7.1g %5.1g" i pl (f pt) (f pg) (p pt))
              $ zip places evalt
     writeFile (gamesDir </> fil) info
     where places = [1..] :: [Int]
           f :: Rational -> Double
-          f r = fromIntegral (numerator r) / fromIntegral (denominator r)
+          -- f r = fromIntegral (numerator r) / fromIntegral (denominator r)
+          f r = fromRational r
+          p :: Rational -> Double
+          p r = fromRational r * 100 / maxp
+          maxp = fromIntegral $ noGames * (popCount - 1)
+
+writeTourRes fil gs ps = do
+    let info = unlines
+             $ map (\(a, b, w, l, d)
+                      -> printf "%-50s %2d wone, %2d lost, %2d draw" (a ++ " - " ++ b) w l d)
+             $ map toTuple
+             $ filter gameDone	-- just to be sure...
+             $ sortBy (comparing pair) gs
+    writeFile (gamesDir </> fil) info
+    where toTuple (Pairing (a, b) (Done (w, l, d))) = (ps!!a, ps!!b, w, l, d)
+          gameDone (Pairing _ (Done _)) = True
+          gameDone _                    = False
 
 eventName :: Event -> String
 eventName = id
@@ -294,15 +317,15 @@ oneMatch event pgn p1 p2 = do
                   parGames,
                   otherOpts,
                   "-event", evname,
-                  both edir,
-                  firstEngine p1,
-                  secondEngine p2
+                  each edir,
+                  engSpec p1,
+                  engSpec p2
                ]
         args2 = concatMap words [ resp, pfil ]
         args = if pgn then args1 ++ args2 else args1
-    -- putStrLn $ "Start: " ++ cuteChess ++ show args
+    when debug $ putStrLn $ "Start: " ++ unwords (cuteChessCom : args)
     (_, Just hout, _, ph)
-            <- createProcess (proc cuteChess args) { std_out = CreatePipe }
+            <- createProcess (proc cuteChessCom args) { std_out = CreatePipe, cwd = Just cuteChessDir }
     catch (everyLine hout (0, 0, 0) noGames) $ \e -> do
         let es = ioeGetErrorString e
         putStrLn $ "Error in everyLine: " ++ es
@@ -312,21 +335,23 @@ oneMatch event pgn p1 p2 = do
 everyLine _ r 0 = return r
 everyLine h r g = do
     lin <- hGetLine h
-    -- putStrLn $ "Got: " ++ lin
+    when debug $ putStrLn $ "Got: " ++ lin
     let (r1, g1) = if "Score of" `isPrefixOf` lin
                       then (getScore lin, g-1)
                       else (r, g)
     everyLine h r1 g1
 
+-- The line has the following structure:
+-- Score of x vs y: a - b - c [prc] n
+-- where x and y are the opponents, a = wins of x, b = wins of y, c = draws
 getScore :: String -> (Int, Int, Int)
 getScore
     = listToTrio
     . map (read . snd)
     . filter (even . fst)
     . zip [0..]
-    . reverse
     . take 5
-    . reverse
+    . drop 5
     . words
 
 listToTrio (x:y:z:_) = (x, y, z)
@@ -428,10 +453,14 @@ startNewGames ev n ps pls = do
         stime <- getClockTime >>= toCalendarTime
                               >>= return . formatCalendarTime defaultTimeLocale "%H:%M:%S"
         putStrLn $ stime ++ ": playing " ++ pl1 ++ " against " ++ pl2
-        a <- async $ (timeout to $ oneMatch ev pgn pl1 pl2) `catch` retNothing
+        -- The timeout is in microseconds, which is bad for longer matches,
+        -- because we reach the Int max bound! So we trust on cutechess_cli
+        -- that it will not hang...
+        -- a <- async $ (timeout to $ oneMatch ev pgn pl1 pl2) `catch` retNothing
+        a <- async $ (oneMatch ev pgn pl1 pl2 >>= return . Just) `catch` retNothing
         return (a, (i, j))
     return $ M.fromList as
-    where to = timeOut*1000*1000
+    where to = timeOut*1000	-- here time is in micro seconds
           retNothing :: SomeException -> IO (Maybe a)
           retNothing = \_ -> return Nothing
 
