@@ -40,6 +40,7 @@ playersDir = "Players"
 gamesDir   = "Games"
 currentDir = "Current"
 statusFile = "status.txt"
+statusFileN = "status-new.txt"
 goonFile   = "running"
 
 -- Some constants for playing one match
@@ -270,9 +271,10 @@ makeSelectionBase mwit ordl olds = remWitn $ map addOlds ordl
           remWitn sbs = case mwit of Just p -> filter ((/= p) . fst) sbs; Nothing -> sbs
 
 -- Saving the status file to disk in order to recover, if necessary
--- This can be done more robust by writing to a new file
--- and then renaming
-saveState st = writeFile statusFile $ show st
+-- To be more robust, write to a new file and then renaming
+saveState st = do
+    writeFile statusFileN $ show st
+    renameFile statusFileN statusFile
 
 writeTourTop fil evalt = do
     let info = unlines
