@@ -84,6 +84,12 @@ distStep = 0.5	-- distribution changing step
 -- Parameters for variation of the random generated candidates
 unchangedChances = 8 :: Int	-- remain unchanged in 8 from 8+2 cases
 
+-- The global optimisation method used here is an adapted cross entropy method
+-- where the new samples are added to the best samples of the previous step
+-- This makes sense only when the comparison of the samples is not deterministic
+-- which is the case when comparing them by playing tournaments (the results
+-- of the games are not deterministic)
+
 -- To start a new evolve give directory and a name
 -- To continue an interrupted evolve, just give the directory (default: pwd)
 main = do
@@ -152,6 +158,9 @@ howManyThreads = do
 threadsFromFile :: IO Int
 threadsFromFile = readFile goonFile >>= return . read . head . lines
 
+-- Generate an initial distribution, which gaussian in every component
+-- (parameter to optimize) and has as the mean the default parameters from Eval.hs
+-- and as standard deviation the maximum (absolute value) of each parameter
 initDist = (parDim, (def, vars0))
     where ies = initEvalState []
           def = esDParams ies
@@ -486,6 +495,7 @@ toPoints _ = []
 showConfig cnf comm = comm ++ "\n" ++ lins
     where lins = unlines $ map (\(n, v) -> n ++ " = " ++ show v) $ zip paramNames cnf
 
+-- Generate new candidates from the distribution
 genCandidates :: Distrib -> Int -> IO [Vec]
 genCandidates dist n = forM [1..n] $ \_ -> genOneCand dist
 
