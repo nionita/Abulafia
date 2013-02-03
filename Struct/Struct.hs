@@ -138,7 +138,6 @@ tabla p sq
 newtype Move = Move Word32 deriving Eq
 
 instance Show Move where
-    -- show m = "Move " ++ toString m
     show = toString
 
 -- some constant bitboards for additional conditions like
@@ -250,6 +249,7 @@ isPawnMoving m !p = isPawnAt src p
 moveFromTo :: Square -> Square -> Move
 moveFromTo f t = Move $ encodeFromTo f t
 
+fromColRow :: Int -> Int -> Square
 fromColRow c r = r * 8 + c - 9
 
 {-# INLINE other #-}
@@ -318,7 +318,8 @@ makeEnPas f t del = Move w2
 transfCodes :: Array Int Piece
 transfCodes = listArray (0, 3) [Knight, Bishop, Rook, Queen]
 transfRev :: Array Piece Word32
-transfRev   = array (Knight, Queen) [(Knight, 0), (Bishop, 1), (Rook, 2), (Queen, 3)]
+transfRev   = array (Knight, Queen)
+                    [(Knight, 0), (Bishop, 0x4000), (Rook, 0x8000), (Queen, 0xC000)]
 
 moveIsTransf :: Move -> Bool
 moveIsTransf (Move w) = testBit w 13
@@ -327,8 +328,8 @@ moveTransfPiece (Move w) = transfCodes ! fromIntegral x
     where x = (w `shiftR` 14) .&. 0x03
 
 makeTransf :: Piece -> Square -> Square -> Move
-makeTransf p f t = Move $ setBit 13 $ fromIntegral
-                        $ code (transfRev ! p) $ encodeFromTo f t
+makeTransf p f t = Move $ setBit w 13
+    where w = (transfRev ! p) .|. encodeFromTo f t
 
 -- General functions for move encoding / decoding
 encodeFromTo :: Square -> Square -> Word32
@@ -338,8 +339,8 @@ encodeFromTo f t = fromIntegral t .|. (fromIntegral f `shiftL` 6)
 movetype :: Int -> Word32 -> Word32
 movetype t w = fromIntegral (t `shiftL` 12) .|. w
 
-code :: Word32 -> Word32 -> Word32
-code c w = (c `shiftL` 14) .|. w
+-- code :: Word32 -> Word32 -> Word32
+-- code c w = (c `shiftL` 14) .|. w
 
 makeSpecial :: Move -> Move
 makeSpecial (Move m) = Move $ m `setBit` 18
