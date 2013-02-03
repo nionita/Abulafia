@@ -2,11 +2,11 @@
 
 module Main (main) where
 
+-- This runs evolve, but with simulated matches
+
 import Prelude hiding (catch)
 import Control.Concurrent
 import Control.Concurrent.Async
--- import Control.Concurrent.MVar
--- import Control.Concurrent.Chan
 import Control.Exception
 import Control.Monad (forM, forM_, liftM, when)
 import Control.Monad.Trans.Class
@@ -33,47 +33,41 @@ import Struct.Status
 import Struct.Evolve
 import Eval.Eval
 
-debug = False
-
 -- Some constants for the evolving environment
 playersDir = "Players"
 gamesDir   = "Games"
 currentDir = "Current"
 statusFile = "status.txt"
-statusFileN = "status-new.txt"
 goonFile   = "running"
 
 -- Some constants for playing one match
-cuteChessDir = "J:\\Chess\\cutechess-cli-0.5.1-win32"
-cuteChessCom = cuteChessDir ++ "\\cutechess-cli.exe"
+cuteChess = "J:\\Chess\\cutechess-cli-win32\\cutechess-cli.exe"
 engPath   = "J:\\AbaAba\\dist\\build\\Abulafia"
 -- Big care here: the running engine should not produce a logfile,
 -- as that would give an error when starting the same engine twice in the same directory
-engine    = "Abulafia_0_62_nnn"
-noGames   = 20
-parGames  = "-rounds " ++ show noGames
-tcMoves   = 40	-- moves
-tcFixTm   = 20	-- seconds
-secPerMv  = 0.2	-- second per move
+engine    = "Abulafia_0_62_evo"
+noGames   = 2
+parGames  = "-games " ++ show noGames
+tcMoves   = 20	-- moves
+tcFixTm   = 10	-- seconds
+secPerMv  = 0	-- second per move
 parTime   = "tc=" ++ show tcMoves ++ "/" ++ show tcFixTm ++ "+" ++ show secPerMv
-otherOpts = "-pgnin swcr-20.pgn -recover -draw 150 100 -resign 4 800 -site Sixpack"
-expLength :: Int
+otherOpts = "-resign 4 800 -site Sixpack"
 expLength = 200	-- expect a maximum game length of so may moves
--- how long to wait for a match - in milliseconds
-toFact  = 2
-expDur :: Double
-expDur  = fromIntegral expLength * secPerMv * 1000
-              + fromIntegral ((expLength * 1000 `div` tcMoves) * tcFixTm)
-timeOut :: Int
-timeOut = toFact * noGames * round expDur
+-- how long to wait for a match
+timeOut   = noGames * 2
+          * (expLength * secPerMv + ((expLength + tcMoves) `div` tcMoves) * tcFixTm)
 ecom  = engPath ++ "\\" ++ engine ++ ".exe"
 -- outDir    = "J:\\AbaAba\\Tests\\Self"
 -- res   = "result_" ++ conf1 ++ "_" ++ conf2 ++ ".pgn"
 resp  = "-pgnout "
 
-engSpec name = "-engine cmd=" ++ ecom ++ " name=" ++ name ++ " arg=" ++ name
+peng name first = pos ++ "cp cmd=" ++ ecom ++ " name=" ++ name ++ " arg=" ++ name
+    where pos = if first then "-f" else "-s"
+firstEngine  name = peng name True
+secondEngine name = peng name False
 
-each dir = "-each dir=" ++ dir ++ " proto=uci " ++ parTime
+both dir = "-both dir=" ++ dir ++ " proto=uci " ++ parTime
 
 -- Parameters for optimisation
 popCount = 12	-- population count (without witness)
@@ -83,12 +77,6 @@ distStep = 0.5	-- distribution changing step
 
 -- Parameters for variation of the random generated candidates
 unchangedChances = 8 :: Int	-- remain unchanged in 8 from 8+2 cases
-
--- The global optimisation method used here is an adapted cross entropy method
--- where the new samples are added to the best samples of the previous step
--- This makes sense only when the comparison of the samples is not deterministic
--- which is the case when comparing them by playing tournaments (the results
--- of the games are not deterministic)
 
 -- To start a new evolve give directory and a name
 -- To continue an interrupted evolve, just give the directory (default: pwd)
@@ -158,9 +146,6 @@ howManyThreads = do
 threadsFromFile :: IO Int
 threadsFromFile = readFile goonFile >>= return . read . head . lines
 
--- Generate an initial distribution, which gaussian in every component
--- (parameter to optimize) and has as the mean the default parameters from Eval.hs
--- and as standard deviation the maximum (absolute value) of each parameter
 initDist = (parDim, (def, vars0))
     where ies = initEvalState []
           def = esDParams ies
@@ -225,8 +210,7 @@ statePrepare = do
         dist  = newDist (evDistrib est) $ mapMaybe (getVect pars) elite
         missing = evPopCount est - length weak
     lift $ do
-        writeTourTop (event ltour ++ "-top.txt") selecs
-        writeTourRes (event ltour ++ "-res.txt") (games ltour) (players ltour)
+        writeTourInfo (event ltour ++ ".txt") selecs
         putStr "Elite:"
         forM_ elite $ \e -> putStr (" " ++ e)
         putStrLn ""
@@ -280,36 +264,18 @@ makeSelectionBase mwit ordl olds = remWitn $ map addOlds ordl
           remWitn sbs = case mwit of Just p -> filter ((/= p) . fst) sbs; Nothing -> sbs
 
 -- Saving the status file to disk in order to recover, if necessary
--- To be more robust, write to a new file and then renaming
-saveState st = do
-    writeFile statusFileN $ show st
-    renameFile statusFileN statusFile
+-- This can be done more robust by writing to a new file
+-- and then renaming
+saveState st = writeFile statusFile $ show st
 
-writeTourTop fil evalt = do
+writeTourInfo fil evalt = do
     let info = unlines
-             $ map (\(i, (pl, (pt, pg)))
-                      -> printf "%2d. %-30s %5.1g %7.1g %5.1g" i pl (f pt) (f pg) (p pt))
+             $ map (\(i, (p, (pt, pg))) -> printf "%2d. %-30s %4.1g %6.1g" i p (f pt) (f pg))
              $ zip places evalt
     writeFile (gamesDir </> fil) info
     where places = [1..] :: [Int]
           f :: Rational -> Double
-          -- f r = fromIntegral (numerator r) / fromIntegral (denominator r)
-          f r = fromRational r
-          p :: Rational -> Double
-          p r = fromRational r * 100 / maxp
-          maxp = fromIntegral $ noGames * (popCount - 1)
-
-writeTourRes fil gs ps = do
-    let info = unlines
-             $ map (\(a, b, w, l, d)
-                      -> printf "%-50s %2d wone, %2d lost, %2d draw" (a ++ " - " ++ b) w l d)
-             $ map toTuple
-             $ filter gameDone	-- just to be sure...
-             $ sortBy (comparing pair) gs
-    writeFile (gamesDir </> fil) info
-    where toTuple (Pairing (a, b) (Done (w, l, d))) = (ps!!a, ps!!b, w, l, d)
-          gameDone (Pairing _ (Done _)) = True
-          gameDone _                    = False
+          f r = fromIntegral (numerator r) / fromIntegral (denominator r)
 
 eventName :: Event -> String
 eventName = id
@@ -319,53 +285,14 @@ eventName = id
 
 oneMatch :: Event -> Bool -> Player -> Player -> IO (Int, Int, Int)
 oneMatch event pgn p1 p2 = do
-    cdir <- getCurrentDirectory
-    let edir = cdir </> currentDir
-        evname = eventName event
-        pfname = evname ++ ".pgn"
-        pfil = cdir </> gamesDir </> pfname
-        args1 = concatMap words [
-                  parGames,
-                  otherOpts,
-                  "-event", evname,
-                  each edir,
-                  engSpec p1,
-                  engSpec p2
-               ]
-        args2 = concatMap words [ resp, pfil ]
-        args = if pgn then args1 ++ args2 else args1
-    when debug $ putStrLn $ "Start: " ++ unwords (cuteChessCom : args)
-    (_, Just hout, _, ph)
-            <- createProcess (proc cuteChessCom args) { std_out = CreatePipe, cwd = Just cuteChessDir }
-    catch (everyLine hout (0, 0, 0) noGames) $ \e -> do
-        let es = ioeGetErrorString e
-        putStrLn $ "Error in everyLine: " ++ es
-        terminateProcess ph
-        throwIO e
+    -- generate noGames times one of 1, 2 or 3
+    -- and then count k in the k-th component of a triple
+    rs <- forM [1..noGames] $ \_ -> dice3
+    return (count 1 rs, count 2 rs, count 3 rs)
+    where count x = length . filter (==x)
 
-everyLine _ r 0 = return r
-everyLine h r g = do
-    lin <- hGetLine h
-    when debug $ putStrLn $ "Got: " ++ lin
-    let (r1, g1) = if "Score of" `isPrefixOf` lin
-                      then (getScore lin, g-1)
-                      else (r, g)
-    everyLine h r1 g1
-
--- The line has the following structure:
--- Score of x vs y: a - b - c [prc] n
--- where x and y are the opponents, a = wins of x, b = wins of y, c = draws
-getScore :: String -> (Int, Int, Int)
-getScore
-    = listToTrio
-    . map (read . snd)
-    . filter (even . fst)
-    . zip [0..]
-    . take 5
-    . drop 5
-    . words
-
-listToTrio (x:y:z:_) = (x, y, z)
+dice3 :: IO Int
+dice3 = getStdRandom $ randomR (1, 3)
 
 pairings :: [a] -> [(a,a)]
 pairings [] = []
@@ -464,14 +391,10 @@ startNewGames ev n ps pls = do
         stime <- getClockTime >>= toCalendarTime
                               >>= return . formatCalendarTime defaultTimeLocale "%H:%M:%S"
         putStrLn $ stime ++ ": playing " ++ pl1 ++ " against " ++ pl2
-        -- The timeout is in microseconds, which is bad for longer matches,
-        -- because we reach the Int max bound! So we trust on cutechess_cli
-        -- that it will not hang...
-        -- a <- async $ (timeout to $ oneMatch ev pgn pl1 pl2) `catch` retNothing
-        a <- async $ (oneMatch ev pgn pl1 pl2 >>= return . Just) `catch` retNothing
+        a <- async $ (timeout to $ oneMatch ev pgn pl1 pl2) `catch` retNothing
         return (a, (i, j))
     return $ M.fromList as
-    where to = timeOut*1000	-- here time is in micro seconds
+    where to = timeOut*1000*1000
           retNothing :: SomeException -> IO (Maybe a)
           retNothing = \_ -> return Nothing
 
@@ -495,7 +418,6 @@ toPoints _ = []
 showConfig cnf comm = comm ++ "\n" ++ lins
     where lins = unlines $ map (\(n, v) -> n ++ " = " ++ show v) $ zip paramNames cnf
 
--- Generate new candidates from the distribution
 genCandidates :: Distrib -> Int -> IO [Vec]
 genCandidates dist n = forM [1..n] $ \_ -> genOneCand dist
 
