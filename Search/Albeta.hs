@@ -695,10 +695,9 @@ pvSearch nst !a !b !d lastpath lastnull = do
                          lift $ {-# SCC "hashStore" #-}
                                 store de typ (pathScore s) (head es) deltan
                      -- checkPath nst d "cpl 6a" $! onlyScore s	-- why??
-                     checkPath nst d "cpl 6a" a	-- $! combinePath s a
-                     -- if movno nstf > 1 || pathScore a <= 0
-                     --     then checkPath nst d "cpl 6a" a	-- $! combinePath s a
-                     --     else return staleMate
+                     if movno nstf > 1
+                         then checkPath nst d "cpl 6a" a	-- $! combinePath s a
+                         else return $! trimaxPath a b staleMate
 
 -- PV Zero Window
 pvZeroW :: Node m => NodeState -> Path -> Int -> Seq Move -> Int
@@ -764,10 +763,9 @@ pvZeroW nst b !d lastpath lastnull = do
                   lift $ {-# SCC "hashStore" #-}
                          -- store de typ (pathScore s) (head es) deltan
                          store de typ (pathScore s) (Move 0) deltan
-              return s
-              -- if movno nstf > 1 || pathScore s <= 0
-              --    then return s
-              --    else return staleMate
+              if s > bGrain || movno nstf > 1
+                 then return s
+                 else return $! trimaxPath bGrain b staleMate
     where bGrain = b-pathGrain
 
 nullEdgeFailsHigh :: Node m => NodeState -> Path -> Int -> Int -> Search m Bool
@@ -847,7 +845,7 @@ pvInnerLoop b d prune nst e = do
                 s' <- checkPath nst d "cpl 8" $ addToPath e s
                 pindent $ "<- " ++ show e ++ " (" ++ show s' ++ ")"
                 checkFailOrPVLoop (stats old) b d e s' nst
-             else return (False, nst)
+            else return (False, nst)
 
 -- This part for the zero window search
 pvInnerLoopZ :: Node m
@@ -1190,6 +1188,9 @@ checkPath nst d mes s = do
                                      ++ ", path = " ++ show s
                 modify $ \s' -> s' { short = True }
     return s
+
+trimaxPath :: Path -> Path -> Path -> Path
+trimaxPath a b x = if x < a then a else if x > b then b else x
 
 trimax :: Int -> Int -> Int -> Int
 trimax a b x = if x < a then a else if x > b then b else x

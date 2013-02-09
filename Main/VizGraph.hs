@@ -271,7 +271,7 @@ updateUp opts bs = do
                                then descNodeFrontier
                                else descNodeNormal
             lift $ descNodeA (stOFile s) node move (stPly s)
-            lift $ descEdge (stOFile s) parent (ndNumb node) score
+            lift $ descEdge (stOFile s) parent (ndNumb node) move score
         if vPly < 0
            then put s { stPhase = Post, stStack = stk, stPly = nPly, stVizPly = vPly }
            else put s {                 stStack = stk, stPly = nPly, stVizPly = vPly }
@@ -340,15 +340,16 @@ descNodeNormal h node move ply =
     where col = if even ply then "green" else "red"
           sn   = show $ ndNumb node
 
-descEdge h parent nn score =
+descEdge h parent nn move score =
     hPutStrLn h $ "\t" ++ parnum ++ " -> " ++ show nn
-                       ++ " [label=" ++ B.unpack score ++ color ++ "]"
+                       ++ " [label=\"" ++ B.unpack move ++ "/" ++ B.unpack score ++ "\"" ++ color ++ "]"
     where color = if ndRese parent then ",color=red" else ""
           parnum = show . ndNumb $ parent
 
 label node move ply = foldl center base $ reverse $ ndDIntv node
     where sn   = show $ ndNumb node
-          base = B.unpack move ++ " [" ++ sn ++ "/" ++ show ply ++ "]" ++ sco
+          -- base = B.unpack move ++ " [" ++ sn ++ "/" ++ show ply ++ "]" ++ sco
+          base = "[" ++ sn ++ "/" ++ show ply ++ "]" ++ sco
           sco  = maybe "" (\s -> "\\n" ++ B.unpack s) $ ndScore node
           center a b = a ++ "\\n" ++ B.unpack b
 
