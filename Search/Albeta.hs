@@ -27,11 +27,11 @@ import Moves.Base
 
 -- To generate info for tree vizualization
 viztree :: Bool
-viztree = False
+viztree = True
 
 -- Parameter for aspiration
 useAspirWin :: Bool
-useAspirWin = True
+useAspirWin = False
 -- aspIncr :: UArray Int Int
 -- aspIncr = array (1, 3) [ (1, 128), (2, 32), (3, 8) ]
 -- aspTries = 3
@@ -221,6 +221,8 @@ data Path
          pathOrig  :: String
       } deriving Show
 
+staleMate = Path { pathScore = 0, pathDepth = 0, pathMoves = Seq [], pathOrig = "stale mate" }
+
 -- Making a path from a plain score:
 pathFromScore :: String -> Int -> Path
 pathFromScore ori s = Path { pathScore = s, pathDepth = 0, pathMoves = Seq [], pathOrig = ori }
@@ -351,7 +353,7 @@ pvRootSearch a b d lastpath rmvs aspir = do
     -- Root is pv node, cannot fail low, except when aspiration fails!
     edges <- if null (unalt rmvs)
                 then genAndSort lastpath NoKiller d True
-                else if null (unseq lastpath)
+                else if nullSeq lastpath
                         then return rmvs
                         else do
                            let !lm = firstMove lastpath
@@ -670,6 +672,7 @@ pvSearch nst !a !b !d lastpath lastnull = do
               if abrt' || s > a
                  then checkPath nst d "cpl 6b" s
                  else do
+                     -- here we failed low
                      let de = pathDepth s
                          es = unalt edges
                      when (de >= minToStore && not (null es)) $ do
@@ -681,7 +684,9 @@ pvSearch nst !a !b !d lastpath lastnull = do
                          lift $ {-# SCC "hashStore" #-}
                                 store de typ (pathScore s) (head es) deltan
                      -- checkPath nst d "cpl 6a" $! onlyScore s	-- why??
-                     checkPath nst d "cpl 6a" $! combinePath s a
+                     if movno nstf > 1 || pathScore a <= 0
+                         then checkPath nst d "cpl 6a" a	-- $! combinePath s a
+                         else return staleMate
 
 -- PV Zero Window
 pvZeroW :: Node m => NodeState -> Path -> Int -> Seq Move -> Int
@@ -745,7 +750,9 @@ pvZeroW nst b !d lastpath lastnull = do
                   lift $ {-# SCC "hashStore" #-}
                          -- store de typ (pathScore s) (head es) deltan
                          store de typ (pathScore s) (Move 0) deltan
-              return s
+              if movno nstf > 1 || pathScore s <= 0
+                 then return s
+                 else return staleMate
     where bGrain = b-pathGrain
 
 nullEdgeFailsHigh :: Node m => NodeState -> Path -> Int -> Int -> Search m Bool
@@ -979,7 +986,7 @@ pvInnerLoopExtenZ b d spec !exd nst = do
           --              then bestMoveFromIID nst (-b) (-a) d' nulMoves
           --              else return pvpath'
           -- Here we expect to fail low
-          viztreeABD (pathScore onemB) (pathScore onemB) d'
+          viztreeABD (pathScore $ -b) (pathScore onemB) d'
           pvZeroW nst onemB d' emptySeq nulMoves
               >>= return . pnextlev >>= checkPath nst d' "cpl 9"
     where onemB = pathGrain - b

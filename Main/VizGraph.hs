@@ -1,17 +1,46 @@
+{-# LANGUAGE TypeSynonymInstances,
+             FlexibleInstances
+  #-}
+
 module Main where
 
-import Control.Monad (when, forM_, mapM)
+import Prelude hiding (catch)
+import Control.Monad (when, forM_, mapM, void)
 import Control.Monad.State
+import Control.Monad.Reader
+import Control.Exception (catch)
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.Char (isSpace)
 import Data.Maybe (fromJust, fromMaybe)
+import Data.List (isPrefixOf)
 import System.Directory
 import System.FilePath
 import System.Environment (getArgs)
 import System.IO
 import System.Process
 import System.Console.GetOpt
+import System.Time
+
+import Struct.Struct
+import Struct.Status
+import Moves.Moves
+import Moves.Board
+import Moves.BaseTypes
+import Moves.Base
+import Moves.History
+import Eval.Eval
+import Hash.TransTab
+import Search.AlbetaTypes
+import Search.Albeta
+-- import Search.SearchA
+import Search.SearchMonad
+import Config.ConfigClass
+import Config.Config
+-- import Moves.Notation
+
+-- There is some duplicated code here mostly from FixPlayFen.hs and Eval.hs
+-- which could be eliminated by factorising
 
 data Options = Options {
          optVerbose :: Bool,		-- what else?
@@ -85,6 +114,7 @@ plotFromFen  opts sess fen = do
            procPlot opts fen
 
 plotFromFile opts sess = do
+    when (optVerbose opts) $ putStrLn $ "Start plotFromFile"
     dex <- doesDirectoryExist sess
     if not dex
        then ioError (userError $ "Directory for session " ++ sess ++ " does no exist! "
@@ -100,74 +130,67 @@ build = "dist" </> "build"
 analyseFile = "analyse.txt"
 fenFile     = "fen.txt"
 
--- Processing from pipe
+-- First time processing in this session: search the fen
+-- and write the log to a file, then process from file
 procPlot :: Options -> String -> IO ()
 procPlot opts fen = do
-    let fixFen  = base </> build </> "FixPlayFen" </> "FixPlayFen.exe"
-        currDir = base </> build </> "Abulafia"
-        pp = (proc fixFen [show (optDepth opts), fen]) { std_out = CreatePipe }
-    (_, mbout, _, _) <- createProcess pp
-    case mbout of
-        Nothing -> ioError $ userError $ "Cannot start process:\n" ++ fixFen
-                                       ++ "\nin directory " ++ show currDir
-        Just oh -> do
-            writeFile fenFile fen
-            sh <- openFile analyseFile WriteMode
-            procInput oh (Just sh) opts
+    writeFile fenFile fen
+    sh <- openFile analyseFile WriteMode
+    runDepthFen (optDepth opts) fen sh
+    hClose sh
+    filePlot opts
 
 -- Processing from file
 filePlot :: Options -> IO ()
 filePlot opts = do
-    oh <- openFile analyseFile ReadMode
-    procInput oh Nothing opts
+    oh <- openFile analyseFile ReadMode `catch` printError
+    procInput oh opts
 
-procInput ih msh opts = do
+printError :: IOError -> IO a
+printError e = putStrLn errm >> return undefined
+    where errm = "Error: " ++ show e
+
+procInput ih opts = do
+    when (optVerbose opts) $ putStrLn $ "Start procInput"
     evalStateT go state0
-    where go = do 
+    where go = do
               eof <- lift $ hIsEOF ih
               if eof
-                  then closeDot >> maybe (return ()) (\h -> lift $ hClose h) msh
+                  then closeDot
                   else do
                       line <- lift $ B.hGetLine ih
-                      case lineok line of
-                          Just l  -> do
-                              maybe (return ()) (\h -> lift $ B.hPutStrLn h line) msh
-                              dispatch opts l
-                          Nothing -> return ()
+                      when (optVerbose opts) $ liftIO $ putStrLn $ "Read next line: " ++ B.unpack line
+                      dispatch opts line
                       go
 
-lineok :: ByteString -> Maybe ByteString
-lineok line = if log `B.isPrefixOf` line then Just (B.drop 8 line) else Nothing
-    where log = B.pack "Log: ***"
-
-data Node = Node {
+data GNode = GNode {
                 ndNumb  :: Int,
                 ndDIntv :: [ByteString],
                 ndScore :: Maybe ByteString,
                 ndLeaf  :: Bool,
                 ndRese  :: Bool,
                 ndBCut  :: Bool
-            }
+            } deriving Show
 
 data Phase = Pre | In | Post deriving Eq	-- before, during or after the visible tree
 
-data MyState = MyState {
+data DState = DState {
                    stOpened  :: Bool,
                    stPhase   :: Phase,
                    stOFile   :: Handle,
                    stCounter :: !Int,
-                   stStack   :: [Node],
+                   stStack   :: [GNode],
                    stPly     :: !Int,
                    stVizRoot :: !Int,
                    stVizPly  :: !Int
                }
 
-mkRoot d = Node { ndNumb = 0, ndDIntv = [B.pack $ d ++ ":(-inf,+inf)"],
+mkRoot d = GNode { ndNumb = 0, ndDIntv = [B.pack $ d ++ ":(-inf,+inf)"],
                   ndScore = Nothing, ndLeaf = False, ndRese = False, ndBCut = False }
-state0 = MyState { stOpened = False, stPhase = Pre, stOFile = undefined,
+state0 = DState { stOpened = False, stPhase = Pre, stOFile = undefined,
                    stCounter = 1, stStack = [], stPly = 0, stVizRoot = 0, stVizPly = 0 }
 
-type Dotter = StateT MyState IO
+type Dotter = StateT DState IO
 
 dispatch :: Options -> ByteString -> Dotter ()
 dispatch opts line = case B.break isSpace line of	-- break on first space
@@ -191,7 +214,9 @@ updateNew opts sdepth = do
     when (idepth == optDepth opts) $ do
         let rootnode = mkRoot (show $ optDepth opts)
             stk = [rootnode]
+        when (optVerbose opts) $ liftIO $ putStrLn $ "Open dot file " ++ show (dotFile opts)
         h <- lift $ openFile (dotFile opts) WriteMode
+        when (optVerbose opts) $ liftIO $ putStrLn $ "Dot file " ++ show (dotFile opts) ++ " opened"
         if optRoot opts == 0
            then do
                -- write beginning of dot file and describe node 0
@@ -207,8 +232,8 @@ updateDown opts bs = do
     s <- get
     when (stOpened s) $ do
         let nn = maybe (-1) fst $ B.readInt bs
-            -- node = Node { ndNumb = stCounter s, ndIntv = Nothing,
-            node = Node { ndNumb = nn, ndDIntv = [], ndScore = Nothing,
+            -- node = GNode { ndNumb = stCounter s, ndIntv = Nothing,
+            node = GNode { ndNumb = nn, ndDIntv = [], ndScore = Nothing,
                           ndLeaf = True, ndRese = False, ndBCut = False }
             (pnode : sstk) = stStack s
             nPly = stPly s + 1
@@ -228,9 +253,11 @@ updateUp :: Options -> ByteString -> Dotter ()
 updateUp opts bs = do
     s <- get
     when (stOpened s) $ do
-        let (snn : move : score : _) = B.words bs
-            (node : stk) = stStack s
-            parent = head stk
+        when (null $ stStack s) $ liftIO $ ioError $ userError $ "Up: empty stStack: " ++ show bs
+        let (node : stk) = stStack s
+        when (null stk) $ liftIO $ ioError $ userError $ "Up: no parent for " ++ show node
+        let parent = head stk
+            (snn : move : score : _) = B.words bs
             nPly = stPly s - 1
             vPly = if stPhase s == In then stVizPly s - 1 else stVizPly s
             snn' = B.unpack snn
@@ -288,7 +315,7 @@ dotHeader h = do
 
 descNodeRoot h = hPutStrLn h "\t0 [color=green,label=\"root\"]"	--,color=green]
 
-descNodeFrontier :: Handle -> Node -> ByteString -> Int -> IO ()
+descNodeFrontier :: Handle -> GNode -> ByteString -> Int -> IO ()
 descNodeFrontier h node move ply =
     -- hPutStrLn h $ "\t" ++ sn ++ " [style=filled,color=gray,label=\""
     -- hPutStrLn h $ "\t" ++ sn ++ " [shape=doublecircle,color=" ++ col ++ ",label=\""
@@ -297,7 +324,7 @@ descNodeFrontier h node move ply =
     where col = if even ply then "green" else "red"
           sn   = show $ ndNumb node
 
-descNodeNormal :: Handle -> Node -> ByteString -> Int -> IO ()
+descNodeNormal :: Handle -> GNode -> ByteString -> Int -> IO ()
 descNodeNormal h node move ply =
     hPutStrLn h $ "\t" ++ sn ++ " [color=" ++ col ++ ",label=\""
                        ++ label node move ply ++ "\"]"
@@ -316,11 +343,115 @@ label node move ply = foldl center base $ reverse $ ndDIntv node
           center a b = a ++ "\\n" ++ B.unpack b
 
 drawAndShow opts = do
-    system $ "dot -T" ++ format ++ " -o " ++ outFile ++ " " ++ dotFile opts
-    runCommand outFile
+    fex <- doesFileExist $ dotFile opts
+    if not fex
+        then putStrLn "No dot file created (perhaps depth?)"
+        else do
+            system $ "dot -T" ++ format ++ " -o " ++ outFile ++ " " ++ dotFile opts
+            void $ runCommand outFile
     where format = "svg"
           outFile = forFile opts format
 
 varFile opts = "root-" ++ show (optRoot opts)
 dotFile opts = varFile opts ++ ".dot"
 forFile opts format = varFile opts ++ "." ++ format
+
+
+-- Here we work in reader transformer over the IO monad
+-- The context is the open file handler where we write all
+-- messages from the search
+
+type LoggerIO = ReaderT Handle IO
+
+instance CtxMon LoggerIO where
+    tellCtx = tellToFile
+    timeCtx = return 0	-- we are not interested in any time contro
+
+runDepthFen depth fen oh = do
+    let pos = updatePos $ posFromFen fen
+    putStrLn $ "Analyse depth " ++ show depth ++ " fen " ++ fen
+    ha  <- newCache defaultConfig
+    hi  <- newHist
+    evs <- makeEvalState Nothing
+    TOD s0 ps0 <- getClockTime
+    let inist = posToState pos ha hi evs
+    n <- runReaderT (searchTheTree 1 depth inist Nothing [] []) oh
+    TOD s1 ps1 <- getClockTime
+    let ttime = fromIntegral (s1 - s0) + fromIntegral (ps1 - ps0) / 10^12
+    putStrLn ""
+    putStrLn $ "Total time (secs): " ++ show ttime
+    putStrLn $ "Total nps        : " ++ show (round $ fromIntegral n / ttime)
+
+-- This is used to redirect the log messages from the search to a file
+-- We are interested only in the log messages (no best move and such)
+-- and we filter directly only the ones needed for visualisation
+tellToFile :: Comm -> LoggerIO ()
+tellToFile (LogMes s) = do
+    h <- ask
+    when (linepfx `isPrefixOf` s) $ lift $ hPutStrLn h $ drop pfxlen s
+    return ()
+    where linepfx = "***"	-- To filter only visualisation relevand log lines
+          pfxlen  = length linepfx
+tellToFile _ = return ()
+
+-- Parameter of the search at this level
+aspirWindow   = 16	-- initial aspiration window
+showEvalStats = False	-- show eval statistics in logfile
+
+-- One iteration in the search for the best move
+bestMoveCont :: Int -> MyState -> Maybe Int -> [Move] -> [Move] -> LoggerIO ([Move], Int, [Move], MyState)
+bestMoveCont tiefe stati lastsc lpv rmvs = do
+    -- informGuiDepth tief
+    -- ctxLog "Info" $ "start search for depth " ++ show tief
+    let abc = ABC {
+                maxdepth = tiefe,
+                lastpv = lpv,
+                lastscore = lastsc,
+                rootmvs   = rmvs,
+                window    = aspirWindow,
+                best      = True,
+                stoptime  = 0
+                }
+    ((sc, path, rmvsf), statf) <- runSearch (alphaBeta abc) stati
+    when (sc == 0) $ return ()
+    let n = nodes . stats $ statf
+    tellToFile (BestMv sc tiefe n path)
+    return (path, sc, rmvsf, statf)
+
+searchTheTree :: Int -> Int -> MyState -> Maybe Int -> [Move] -> [Move] -> LoggerIO Int
+searchTheTree tief mtief mystate lsc lpv rmvs = do
+    -- search with the given dept
+    (path, sc, rmvsf, stfin) <- bestMoveCont tief mystate lsc lpv rmvs
+    case length path of _ -> return () -- because of lazyness
+    if tief >= mtief  -- maximal dept
+        then giveBestMove path (nodes $ stats stfin)
+        else searchTheTree (tief + 1) mtief stfin (Just sc) path rmvs
+
+giveBestMove :: [Move] -> Int -> LoggerIO Int
+giveBestMove mvs nodes = do
+    lift $ putStr $ case mvs of
+        (fmv:_) -> " -> bm " ++ show fmv ++ ", ns " ++ show nodes
+        _       -> " -> bm empty PV (" ++ show nodes ++ " nodes)"
+    return nodes
+
+-- Opens a parameter file for eval, read it and create an eval stat
+makeEvalState argfile  =
+    case argfile of
+        Just afn -> do
+            fex <- doesFileExist afn
+            if fex then filState afn else defState
+        Nothing -> defState
+    where defState = return $ initEvalState []
+          filState fn = fmap initEvalState (fileToParams `fmap` readFile fn)
+
+fileToParams = map readParam . nocomments . lines
+    where nocomments = filter (not . iscomment)
+          iscomment [] = True
+          iscomment ('-':'-':_) = True
+          iscomment (c:cs) | isSpace c = iscomment cs
+          iscomment _ = False
+
+readParam :: String -> (String, Double)
+readParam s = let (ns, vs) = span (/= '=') s in (strip ns, cleanread vs)
+    where strip = filter (not . isSpace)
+          cleanread = read . tail . strip
