@@ -199,12 +199,14 @@ dispatch opts line = case B.break isSpace line of	-- break on first space
                   | verb == up   -> updateUp   opts $ B.drop 1 rest
                   | verb == abd  -> updateABD  opts $ B.drop 1 rest
                   | verb == rese -> updateRese opts $ B.drop 1 rest
+                  | verb == sco  -> updateSco  opts $ B.drop 1 rest
                   | otherwise    -> return ()
     where new  = B.pack "NEW"
           down = B.pack "DOWN"
           up   = B.pack "UP"
           abd  = B.pack "ABD"
           rese = B.pack "RESE"
+          sco  = B.pack "SCO"
 
 updateNew :: Options -> ByteString -> Dotter ()
 updateNew opts sdepth = do
@@ -232,7 +234,6 @@ updateDown opts bs = do
     s <- get
     when (stOpened s) $ do
         let nn = maybe (-1) fst $ B.readInt bs
-            -- node = GNode { ndNumb = stCounter s, ndIntv = Nothing,
             node = GNode { ndNumb = nn, ndDIntv = [], ndScore = Nothing,
                           ndLeaf = True, ndRese = False, ndBCut = False }
             (pnode : sstk) = stStack s
@@ -297,6 +298,14 @@ updateRese opts _ = do
             node' = node { ndRese = True }
         put s { stStack = node' : stk }
 
+updateSco :: Options -> ByteString -> Dotter ()
+updateSco opts scorebs = do
+    s <- get
+    when (stOpened s) $ do
+        let (node : stk) = stStack s
+            node' = node { ndScore = Just scorebs }
+        put s { stStack = node' : stk }
+
 nodeHasChildren = not . ndLeaf
 
 closeDot :: Dotter ()
@@ -339,7 +348,8 @@ descEdge h parent nn score =
 
 label node move ply = foldl center base $ reverse $ ndDIntv node
     where sn   = show $ ndNumb node
-          base = B.unpack move ++ " [" ++ sn ++ "/" ++ show ply ++ "]"
+          base = B.unpack move ++ " [" ++ sn ++ "/" ++ show ply ++ "]" ++ sco
+          sco  = maybe "" (\s -> "\\n" ++ B.unpack s) $ ndScore node
           center a b = a ++ "\\n" ++ B.unpack b
 
 drawAndShow opts = do

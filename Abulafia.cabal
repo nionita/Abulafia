@@ -69,6 +69,7 @@ Executable VizGraph
   Main-is:       Main/VizGraph.hs
   Build-depends: base >= 4
   GHC-Options:   -O2
+  CPP-Options:   -DVIZTREE
 
 Executable PlotEvolve
   Main-is:	Main/EvolveToPlot.hs

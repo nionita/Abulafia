@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE CPP #-}
 
 module Search.Albeta (
     alphaBeta, logmes
@@ -27,7 +28,11 @@ import Moves.Base
 
 -- To generate info for tree vizualization
 viztree :: Bool
+#ifdef VIZTREE
 viztree = True
+#else
+viztree = False
+#endif
 
 -- Parameter for aspiration
 useAspirWin :: Bool
@@ -440,7 +445,9 @@ pvInnerRoot b d nst e = do
                 modify $ \s -> s { absdp = absdp s + 1 }
                 s <- case exd of
                          Exten exd' -> pvInnerRootExten b d (special e) exd' nst
-                         Final sco  -> return $! pathFromScore "Final" (-sco)
+                         Final sco  -> do
+                             viztreeScore $ "Final: " ++ show sco
+                             return $! pathFromScore "Final" (-sco)
                 -- undo the move
                 lift $ undoEdge
                 viztreeUp nn e (pathScore s)
@@ -481,7 +488,7 @@ pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
         negb = -b
     if pvs	-- search of principal variation
        then {-# SCC "forpvSearchRoot" #-} do
-           viztreeABD (pathScore $ -b) (pathScore $ -a) d'
+           viztreeABD (pathScore negb) (pathScore nega) d'
            pvSearch nst negb nega d' pvpath' nulMoves >>= return . pnextlev
                                                       >>= checkPath nst d' "cpl 11"
        else {-# SCC "nullWindowRoot" #-} do
@@ -515,6 +522,8 @@ pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
                          then return s2
                          -- we must try full window
                          else do
+                             viztreeReSe
+                             viztreeABD (pathScore negb) (pathScore nega) d1
                              let nst' = nst { nxtnt = PVNode, forpv = True }
                              pvSearch nst' negb nega d1 pvpath 0
                                  >>= return . pnextlev      >>= checkPath nst d1 "cpl 12a"
@@ -645,6 +654,7 @@ pvSearch nst !a !b !d lastpath lastnull = do
        then do
          let !s = onlyScore b
          pindent $ "<= " ++ show s
+         viztreeScore $ "nmhigh: " ++ show (pathScore s)
          return s
        else do
          -- edges <- genAndSort lastpath (killer nst) d (forpv nst)
@@ -652,6 +662,7 @@ pvSearch nst !a !b !d lastpath lastnull = do
          if noMove edges
             then do
               v <- lift staticVal
+              viztreeScore $ "noMove: " ++ show v
               let !s = pathFromScore ("static: " ++ show v) v
               pindent $ "<= " ++ show s
               return s
@@ -684,9 +695,10 @@ pvSearch nst !a !b !d lastpath lastnull = do
                          lift $ {-# SCC "hashStore" #-}
                                 store de typ (pathScore s) (head es) deltan
                      -- checkPath nst d "cpl 6a" $! onlyScore s	-- why??
-                     if movno nstf > 1 || pathScore a <= 0
-                         then checkPath nst d "cpl 6a" a	-- $! combinePath s a
-                         else return staleMate
+                     checkPath nst d "cpl 6a" a	-- $! combinePath s a
+                     -- if movno nstf > 1 || pathScore a <= 0
+                     --     then checkPath nst d "cpl 6a" a	-- $! combinePath s a
+                     --     else return staleMate
 
 -- PV Zero Window
 pvZeroW :: Node m => NodeState -> Path -> Int -> Seq Move -> Int
@@ -717,12 +729,14 @@ pvZeroW nst b !d lastpath lastnull = do
        then do
          let !s = onlyScore b
          pindent $ "<= " ++ show s
+         viztreeScore $ "nmhigh: " ++ show (pathScore s)
          return s
        else do
          edges <- genAndSort lastpath (killer nst) d (crtnt nst /= AllNode)
          if noMove edges
             then do
               v <- lift staticVal
+              viztreeScore $ "noMove: " ++ show v
               let !s = pathFromScore ("static: " ++ show v) v
               pindent $ "<= " ++ show s
               return s
@@ -750,9 +764,10 @@ pvZeroW nst b !d lastpath lastnull = do
                   lift $ {-# SCC "hashStore" #-}
                          -- store de typ (pathScore s) (head es) deltan
                          store de typ (pathScore s) (Move 0) deltan
-              if movno nstf > 1 || pathScore s <= 0
-                 then return s
-                 else return staleMate
+              return s
+              -- if movno nstf > 1 || pathScore s <= 0
+              --    then return s
+              --    else return staleMate
     where bGrain = b-pathGrain
 
 nullEdgeFailsHigh :: Node m => NodeState -> Path -> Int -> Int -> Search m Bool
@@ -766,14 +781,16 @@ nullEdgeFailsHigh nst b d lastnull
                lift nullEdge	-- do null move
                nn <- newNode
                viztreeDown0 nn
-               viztreeABD (pathScore $ -nmb) (pathScore $ -nmb + nulMarPath) d1
+               viztreeABD (pathScore negnmb) (pathScore negmar) d1
                -- val <- liftM negate $ pvSearch nst (-nmb) (-nmb + nulMarPath) d1 emptySeq lastnull1
-               val <- liftM pnextlev $ pvSearch nst (-nmb) (-nmb + nulMarPath) d1 emptySeq lastnull1
+               val <- liftM pnextlev $ pvSearch nst negnmb negmar d1 emptySeq lastnull1
                lift undoEdge	-- undo null move
                viztreeUp0 nn (pathScore val)
                return $! val >= nmb
     where d1  = d - (1 + nulRedux)
           !nmb = if nulSubAct then b - nulSubPath else b
+          negnmb = -nmb
+          negmar = negnmb + nulMarPath
           lastnull1 = lastnull - 1
 
 pvSLoop :: Node m => Path -> Int -> Bool -> NodeState -> Alt Move -> Search m NodeState
@@ -821,7 +838,9 @@ pvInnerLoop b d prune nst e = do
                            if prune && exd' == 0 && not speci -- don't prune special or extended
                               then return $! onlyScore $! cursc nst	-- prune, return a
                               else pvInnerLoopExten b d speci exd' nst
-                         Final sco  -> return $! pathFromScore "Final" (-sco)
+                         Final sco  -> do
+                             viztreeScore $ "Final: " ++ show sco
+                             return $! pathFromScore "Final" (-sco)
                 lift undoEdge	-- undo the move
                 viztreeUp nn e (pathScore s)
                 modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
@@ -857,7 +876,9 @@ pvInnerLoopZ b d prune nst e = do
                            if prune && exd' == 0 && not speci -- don't prune special or extended
                               then return $! onlyScore $! cursc nst	-- prune, return a
                               else pvInnerLoopExtenZ b d speci exd' nst
-                         Final sco  -> return $! pathFromScore "Final" (-sco)
+                         Final sco  -> do
+                             viztreeScore $ "Final: " ++ show sco
+                             return $! pathFromScore "Final" (-sco)
                 lift undoEdge	-- undo the move
                 viztreeUp nn e (pathScore s)
                 modify $ \s' -> s' { absdp = absdp old, usedext = usedext old }
@@ -939,6 +960,8 @@ pvInnerLoopExten b d spec !exd nst = do
                             if abrt || s2 <= a
                                then return s2	-- failed low (as expected) or aborted
                                else do
+                                   viztreeReSe
+                                   viztreeABD (pathScore negb) (pathScore nega) d1
                                    let nst' = if crtnt nst == PVNode
                                                  then nst { nxtnt = PVNode, forpv = True }
                                                  else nst { forpv = True }
@@ -986,10 +1009,11 @@ pvInnerLoopExtenZ b d spec !exd nst = do
           --              then bestMoveFromIID nst (-b) (-a) d' nulMoves
           --              else return pvpath'
           -- Here we expect to fail low
-          viztreeABD (pathScore $ -b) (pathScore onemB) d'
+          viztreeABD (pathScore negb) (pathScore onemB) d'
           pvZeroW nst onemB d' emptySeq nulMoves
               >>= return . pnextlev >>= checkPath nst d' "cpl 9"
-    where onemB = pathGrain - b
+    where onemB = pathGrain + negb
+          negb = -b
 
 pnearmate :: Path -> Bool
 pnearmate = nearmate . pathScore
@@ -1175,6 +1199,7 @@ pvQSearch :: Node m => Int -> Int -> Int -> Search m Int
 pvQSearch !a !b c = do				   -- to avoid endless loops
     -- qindent $ "=> " ++ show a ++ ", " ++ show b
     !stp <- lift staticVal				-- until we can recognize repetition
+    viztreeScore $ "Static: " ++ show stp
     tact <- lift tactical
     if tact
        then do
@@ -1185,7 +1210,9 @@ pvQSearch !a !b c = do				   -- to avoid endless loops
               then return $! trimax a b stp
               else if c >= qsMaxChess
                       -- then qindent ("<= -1") >> return inEndlessCheck
-                      then return $! trimax a b inEndlessCheck
+                      then do
+                          viztreeScore $ "endless check: " ++ show inEndlessCheck
+                          return $! trimax a b inEndlessCheck
                       else do
                           -- for check extensions in case of very few moves (1 or 2):
                           -- if 1 move: search even deeper
@@ -1242,7 +1269,9 @@ pvQInnerLoop !b c !a e = do
                 nn <- newNodeQS
                 viztreeDown nn e
                 !sc <- case r of
-                           Final sc -> return (-sc)
+                           Final sc -> do
+                               viztreeScore $ "Final: " ++ show sc
+                               return (-sc)
                            _        -> do
                              modify $ \s -> s { absdp = absdp s + 1 }
                              !s <- pvQSearch (-b) (-a) c
@@ -1373,6 +1402,9 @@ viztreeABD a b d = when viztree $ lift $ logmes $ "***ABD " ++ show a ++ " " ++ 
 
 viztreeReSe :: Node m => Search m ()
 viztreeReSe = when viztree $ lift $ logmes "***RESE"
+
+viztreeScore :: Node m => String -> Search m ()
+viztreeScore s = when viztree $ lift $ logmes $ "***SCO " ++ s
 
 bestFirst :: Eq e => [e] -> [e] -> ([e], [e]) -> [e]
 bestFirst path kl (es1, es2)
