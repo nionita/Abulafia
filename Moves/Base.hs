@@ -189,7 +189,8 @@ statNodes = do
     put s1
 
 showMyPos :: MyPos -> String
-showMyPos p = showTab (black p) (slide p) (kkrq p) (diag p) ++ "================\n"
+showMyPos p = showTab (black p) (slide p) (kkrq p) (diag p) ++ "================ " ++ mc ++ "\n"
+    where mc = if moving p == White then "w" else "b"
 
 -- move from a node to a descendent
 doMove :: CtxMon m => Bool -> Move -> Bool -> Game r m DoResult
@@ -318,7 +319,7 @@ staticVal0 = do
                    then error $ "Wrong position, pos stack:\n" ++ concatMap showMyPos (stack s)
                    else staticScore t
         -- Here we actually don't need genMoves - it would be enough to know that
-        -- there is at leas one legal move, which should be much cheaper
+        -- there is at least one legal move, which should be much cheaper
         stSc1 | hasMoves t c  = stSc
               | check t /= 0  = -mateScore
               | otherwise     = 0
@@ -400,9 +401,12 @@ choose0 _    pvs = case pvs of
     p1 : [] -> return p1
     p1 : ps -> do
          let equal = p1 : takeWhile inrange ps
+             minscore = fst p1 - scoreDiffEqual
+             inrange x = fst x >= minscore
              len = length equal
-             inrange x = fst p1 - fst x <= scoreDiffEqual
+         logMes $ "Choose from: " ++ show pvs
          logMes $ "Choose length: " ++ show len
+         logMes $ "Choose equals: " ++ show equal
          if len == 1
             then return p1
             else do

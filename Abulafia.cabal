@@ -69,6 +69,7 @@ Executable VizGraph
   Main-is:       Main/VizGraph.hs
   Build-depends: base >= 4
   GHC-Options:   -O2
+  CPP-Options:   -DVIZTREE
 
 Executable PlotEvolve
   Main-is:	Main/EvolveToPlot.hs
@@ -99,7 +100,12 @@ Executable BenchTransTab
 
 Executable Evolve
   Main-is:	Main/MainEvolve.hs
-  Build-depends: base >= 4, process, filepath, bytestring, old-locale
+  Build-depends: base >= 4, process, filepath, bytestring, old-locale, async
+  GHC-Options:	-O2 -Wall -threaded -rtsopts
+
+Executable EvolveSim
+  Main-is:	Main/MainEvolveSim.hs
+  Build-depends: base >= 4, process, filepath, bytestring, old-locale, async
   GHC-Options:	-O2 -Wall -threaded -rtsopts
 
 -- Executable LearnSTS

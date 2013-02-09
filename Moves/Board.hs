@@ -139,10 +139,9 @@ isCheck p c = (ckp /= 0) && (ckp .&. colp /= 0)
     where colp = if c == White then white p else black p
           ckp = check p
 
--- {-# INLINE inCheck #-}
+{-# INLINE inCheck #-}
 inCheck :: MyPos -> Bool
-inCheck p = moving p == White && isCheck p White
-            || moving p == Black && isCheck p Black
+inCheck = (/= 0) . check
 
 goPromo :: MyPos -> Move -> Bool
 goPromo p m
@@ -164,8 +163,12 @@ genmv spec p (f, t) = if spec then makeSpecial m else m
 genmvT :: MyPos -> (Square, Square) -> Move
 genmvT p (f, t) = makeTransf Queen f t
 
+-- Here it seems we have a problem when we are not in check but could move
+-- only a pinned piece: then we are stale mate but don't know (yet)
+-- In the next ply, when we try to find a move, we see that all moves are illegal
+-- In this case we should take care in search that the score is 0!
 hasMoves :: MyPos -> Color -> Bool
-hasMoves p c = (check && (not . null $ genMoveFCheck p c)) || (not check && anyMove)
+hasMoves p c = (chk && (not . null $ genMoveFCheck p c)) || (not chk && anyMove)
     where hasPc = any (/= 0) $ map (pcapt . pAttacs c)
                      $ bbToSquares $ pawns p .&. myfpc
           hasPm = not . null $ pAll1Moves c (pawns p .&. mypc) (occup p)
@@ -178,7 +181,7 @@ hasMoves p c = (check && (not . null $ genMoveFCheck p c)) || (not check && anyM
                      $ bbToSquares $ queens p .&. myfpc
           hasK = 0 /= (legal . kAttacs $ firstOne $ kings p .&. mypc)
           anyMove = hasK || hasN || hasPm || hasPc || hasQ || hasR || hasB
-          !check = inCheck p
+          chk = inCheck p
           (mypc, yopi) = thePieces p c
           myfpc = mypc `less` pinned p
           yopiep = yopi .|. (epcas p .&. epMask)
@@ -545,6 +548,8 @@ calcPinned p wpind bpind = wpi .|. bpi
                     $ filter exactOne $ map ((.&. occup p) . snd) wpind
 
 -- Generate the castle moves
+-- Here we could optimize a bit by defining constants separately for White and Black
+-- and test anyway kingmoved first (or even a more general pattern for all moved)
 genMoveCast :: MyPos -> Color -> [Move]
 genMoveCast p c
     | inCheck p || kingmoved = []
@@ -552,13 +557,12 @@ genMoveCast p c
     where (ksq, crk, crq, cmidk, cmidq, opAtt) =
              if c == White then (4,  caRKiw, caRQuw, caRMKw, caRMQw, blAttacs p)
                            else (60, caRKib, caRQub, caRMKb, caRMQb, whAttacs p)
-          epc = epcas p
-          kingmoved = not (epc `testBit` ksq)
+          kingmoved = not (epcas p `testBit` ksq)
           rookk = ksq + 3
           rookq = ksq - 4
-          kingside = if (epc `testBit` rookk) && (occup p .&. cmidk == 0) && (opAtt .&. cmidk == 0)
+          kingside  = if (epcas p `testBit` rookk) && (occup p .&. cmidk == 0) && (opAtt .&. cmidk == 0)
                         then [caks] else []
-          queenside = if (epc `testBit` rookq) && (occup p .&. cmidq == 0) && (opAtt .&. cmidq == 0)
+          queenside = if (epcas p `testBit` rookq) && (occup p .&. cmidq == 0) && (opAtt .&. cmidq == 0)
                         then [caqs] else []
           caks = makeCastleFor c True
           caqs = makeCastleFor c False
@@ -641,14 +645,23 @@ alternateMoves p m1 m2
     where src1 = fromSquare m1
           src2 = fromSquare m2
 
+-- This is used to filter the illegal moves coming from killers or hash table
+-- but we must treat special moves (en-passant, castle and promotion) differently,
+-- because they are more complex
 legalMove :: MyPos -> Move -> Bool
 legalMove p m
     | Busy col fig <- tabla p src = moving p == col
+                                 && (moveIsNormal m || specialMoveIsLegal p m)
                                  && not (myPieces p col `testBit` dst)
                                  && canMove fig p src dst
     | otherwise = False
     where src = fromSquare m
           dst = toSquare m
+
+-- currently we assume special moves coming from killers or hash
+-- are illegal, so they will be tried after the regular generation
+specialMoveIsLegal :: MyPos -> Move -> Bool
+specialMoveIsLegal _ _ = False
 
 nonCapt :: MyPos -> Move -> Bool
 nonCapt p m
@@ -668,7 +681,6 @@ canMove fig p src dst = fAttacs src fig (occup p) `testBit` dst
 -- doFromToMove :: Square -> Square -> MyPos -> Maybe MyPos
 -- {-# INLINE doFromToMove #-}
 doFromToMove :: Move -> MyPos -> MyPos
--- doFromToMove m p | moveIsNormal m = updatePos (changePining p src dst) p {
 doFromToMove m p | moveIsNormal m = updatePos p {
                                         basicPos = nbp, zobkey = tzobkey, mater = tmater
                                     }
@@ -705,7 +717,6 @@ doFromToMove m p | moveIsNormal m = updatePos p {
                                  ++ showTab (black p) (slide p) (kkrq p) (diag p)
                                  ++ "resulting pos:\n"
                                  ++ showTab tblack tslide tkkrq tdiag
--- doFromToMove m p | moveIsEnPas m = updatePos False p {
 doFromToMove m p | moveIsEnPas m = updatePos p {
                                        basicPos = nbp, zobkey = tzobkey, mater = tmater
                                    }
@@ -732,7 +743,6 @@ doFromToMove m p | moveIsEnPas m = updatePos p {
                               accumSetPiece dst col fig p,
                               accumMoving p
                           ]
--- doFromToMove m p | moveIsTransf m = updatePos True p0 {
 doFromToMove m p | moveIsTransf m = updatePos p0 {
                                         basicPos = nbp, zobkey = tzobkey, mater = tmater
                                     }
@@ -758,7 +768,6 @@ doFromToMove m p | moveIsTransf m = updatePos p0 {
                               accumSetPiece dst col pie p0,	--- Hier: is this ok???
                               accumMoving p
                           ]
--- doFromToMove m p | moveIsCastle m = updatePos True p {
 doFromToMove m p | moveIsCastle m = updatePos p {
                                         basicPos = nbp, zobkey = tzobkey, mater = tmater
                                     }
@@ -768,7 +777,16 @@ doFromToMove m p | moveIsCastle m = updatePos p {
           }
           src = fromSquare m
           dst = toSquare m
-          (csr, cds) = moveCastleFromTo m
+          (csr, cds) = case src of
+              4  -> case dst of
+                  6 -> (7, 5)
+                  2 -> (0, 3)
+                  _ -> error $ "Wrong destination for castle move " ++ show m
+              60 -> case dst of
+                  62 -> (63, 61)
+                  58 -> (56, 59)
+                  _ -> error $ "Wrong destination for castle move " ++ show m
+              _  -> error $ "Wrong source for castle move " ++ show m
           shf = dst - src
           shfr = cds - csr
           mask = bit dst .|. bit src

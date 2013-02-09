@@ -16,7 +16,7 @@ import Struct.Status
 import Eval.Eval
 import Eval.FileParams
 
-regexResultFile = mkRegex "(.*-([0-9]+)\\.txt)"
+regexResultFile = mkRegex "(.*-([0-9]+)-top\\.txt)"
 regexPlayerName = mkRegex " *[0-9]+\\. ([^ ]+)"
 
 main = mainToPlot
@@ -41,7 +41,7 @@ toPlot dir places = do
     let winning = zip (map fst sfiles) pla	-- [(tourn, [pla1, pla2, pla3])]
         dist    = map head . group . sort . concat $ pla
     putStrLn $ show (length dist) ++ " distinct players found"
-    putStrLn "Getting the players patameters"
+    putStrLn "Getting the players parameters"
     plMap <- Map.fromList . map (\(p, Just d) -> (p, d)) . filter (isJust . snd) . zip dist
                  <$> mapM (getPlayer currDir archDir) dist
     putStrLn "Compute the averages"

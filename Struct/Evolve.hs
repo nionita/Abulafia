@@ -1,6 +1,6 @@
 module Struct.Evolve where
-import Control.Concurrent.Chan
--- import qualified Data.Vector.Unboxed as V
+import Control.Concurrent.Async
+import Data.Map (Map)
 
 type Player = String
 
@@ -11,7 +11,7 @@ data Result = ToPlay
             | Done (Int, Int, Int)
             deriving (Show, Read)
 
-type ResReturn = ((Int, Int), Maybe (Int, Int, Int))
+type ResReturn = Maybe (Int, Int, Int)
 
 data Pairing = Pairing {
                   pair   :: (Int, Int),
@@ -48,7 +48,7 @@ data EvolvePersistentState
 data EvolveState
     = EvSt {
         stPers     :: EvolvePersistentState,	-- the persistent state
-        stChan     :: Chan ResReturn,		-- channel for game result returns
+        stAsync    :: Map (Async ResReturn) (Int, Int),	-- list from asynchronous actions pair
         stMaxThr   :: Int,			-- maximum number of running games
         stCurThr   :: Int 			-- current number of running games
       }
