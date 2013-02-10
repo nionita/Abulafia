@@ -222,6 +222,7 @@ data Path
       } deriving Show
 
 staleMate = Path { pathScore = 0, pathDepth = 0, pathMoves = Seq [], pathOrig = "stale mate" }
+matedPath = Path { pathScore = -mateScore, pathDepth = 0, pathMoves = Seq [], pathOrig = "mated" }
 
 -- Making a path from a plain score:
 pathFromScore :: String -> Int -> Path
@@ -699,14 +700,12 @@ pvSearch nst !a !b !d lastpath lastnull = do
                          -- store as upper score, move is also correct, as we check not (null es)
                          lift $ {-# SCC "hashStore" #-}
                                 store de typ (pathScore s) (head es) deltan
-<<<<<<< HEAD
-                     checkPath nst d "cpl 6a" $! bestPath s a
-=======
-                     -- checkPath nst d "cpl 6a" $! onlyScore s	-- why??
                      if movno nstf > 1
-                         then checkPath nst d "cpl 6a" a	-- $! combinePath s a
-                         else return $! trimaxPath a b staleMate
->>>>>>> next1
+                         then checkPath nst d "cpl 6a" $! bestPath s a
+                         else do
+                             chk <- lift tactical
+                             let s' = if chk then matedPath else staleMate
+                             return $! trimaxPath a b s'
 
 -- PV Zero Window
 pvZeroW :: Node m => NodeState -> Path -> Int -> Seq Move -> Int
@@ -774,15 +773,13 @@ pvZeroW nst b !d lastpath lastnull = do
                   lift $ {-# SCC "hashStore" #-}
                          -- store de typ (pathScore s) (head es) deltan
                          store de typ (pathScore s) (Move 0) deltan
-<<<<<<< HEAD
-              return s
-    where bGrain = b -: scoreGrain
-=======
               if s > bGrain || movno nstf > 1
                  then return s
-                 else return $! trimaxPath bGrain b staleMate
-    where bGrain = b-pathGrain
->>>>>>> next1
+                 else do
+                     chk <- lift tactical
+                     let s' = if chk then matedPath else staleMate
+                     return $! trimaxPath bGrain b s'
+    where bGrain = b -: scoreGrain
 
 nullEdgeFailsHigh :: Node m => NodeState -> Path -> Int -> Int -> Search m Bool
 nullEdgeFailsHigh nst b d lastnull
@@ -795,29 +792,17 @@ nullEdgeFailsHigh nst b d lastnull
                lift nullEdge	-- do null move
                nn <- newNode
                viztreeDown0 nn
-<<<<<<< HEAD
                viztreeABD (pathScore negnmb) (pathScore negnma) d1
-               val <- liftM pnextlev $ pvSearch nst negnmb negnma d1 emptySeq (lastnull - 1)
-=======
-               viztreeABD (pathScore negnmb) (pathScore negmar) d1
-               -- val <- liftM negate $ pvSearch nst (-nmb) (-nmb + nulMarPath) d1 emptySeq lastnull1
-               val <- liftM pnextlev $ pvSearch nst negnmb negmar d1 emptySeq lastnull1
->>>>>>> next1
+               val <- liftM pnextlev $ pvSearch nst negnmb negnma d1 emptySeq lastnull1
                lift undoEdge	-- undo null move
                viztreeUp0 nn (pathScore val)
                return $! val >= nmb
     where d1  = d - (1 + nulRedux)
-<<<<<<< HEAD
           nmb = if nulSubAct then b -: (nulSubmrg * scoreGrain) else b
           nma = nmb -: (nulMargin * scoreGrain)
           negnmb = negatePath nmb
           negnma = negatePath nma
-=======
-          !nmb = if nulSubAct then b - nulSubPath else b
-          negnmb = -nmb
-          negmar = negnmb + nulMarPath
           lastnull1 = lastnull - 1
->>>>>>> next1
 
 pvSLoop :: Node m => Path -> Int -> Bool -> NodeState -> Alt Move -> Search m NodeState
 pvSLoop b d p s es = go s es
@@ -1038,18 +1023,8 @@ pvInnerLoopExtenZ b d spec !exd nst = do
           viztreeABD (pathScore negb) (pathScore onemB) d'
           pvZeroW nst onemB d' emptySeq nulMoves
               >>= return . pnextlev >>= checkPath nst d' "cpl 9"
-<<<<<<< HEAD
     where onemB = negatePath $ b -: scoreGrain
-=======
-    where onemB = pathGrain + negb
-          negb = -b
-
-pnearmate :: Path -> Bool
-pnearmate = nearmate . pathScore
-
-pnextlev :: Path -> Path
-pnextlev p = p { pathScore = - pathScore p }
->>>>>>> next1
+          negb = negatePath b
 
 checkFailOrPVLoop :: Node m => SStats -> Path -> Int -> Move -> Path
                   -> NodeState -> Search m (Bool, NodeState)
