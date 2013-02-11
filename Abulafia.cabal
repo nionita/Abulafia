@@ -108,6 +108,11 @@ Executable EvolveSim
   Build-depends: base >= 4, process, filepath, bytestring, old-locale, async
   GHC-Options:	-O2 -Wall -threaded -rtsopts
 
+Executable QLRDriver
+  Main-is:       Main/MainQLR.hs
+  Build-depends: base >= 4, process, filepath, bytestring, old-locale, async
+  GHC-Options:	-O2 -Wall
+
 -- Executable LearnSTS
 --   Main-is:             Tests/LearnSTS.hs
 --   Build-depends:       base >= 4, array, old-time, containers, mtl, parsec, vector, random, stream-fusion, bytestring, directory
