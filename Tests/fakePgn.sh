@@ -1,3 +1,5 @@
+#!/usr/bin/bash
+
 cd /j/Learn/$1/Games
 awk 'function pg(w,b,r) {
         print "[Event \"test\"]";

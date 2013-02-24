@@ -1,3 +1,5 @@
+#!/usr/bin/bash
+
 cd /j/Learn/$1/Games
 if [ "$2" == old ]
 then
