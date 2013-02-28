@@ -19,9 +19,8 @@ import Struct.Struct
 lsb :: BBoard -> BBoard
 lsb b = b .&. (-b)
 
--- {-# INLINE exactOne #-}
+{-# INLINE exactOne #-}
 exactOne :: BBoard -> Bool
--- exactOne !b = b /= 0 && b `less` lsb b == 0
 exactOne = (==1) . B.popCount
 
 {-# INLINE less #-}
@@ -30,16 +29,16 @@ less w1 w2 = w1 .&. complement w2
 
 {-# INLINE firstOne #-}
 firstOne :: BBoard -> Square
-firstOne !b = bitScanDatabase `unsafeAt` (fromIntegral $ (lsb b * bitScanMagic) `shiftR` 58)
+firstOne !b = bitScanDatabase `unsafeAt` (fromIntegral $ (lsb b * bitScanMagic) `unsafeShiftR` 58)
 
 bitScanMagic :: BBoard
 bitScanMagic = 0x07EDD5E59A4E28C2
 
 bitScanDatabase :: UArray Int Int
 bitScanDatabase = array (0, 63) paar
-    where ones = take 64 $ zip [0..] $ iterate (`shiftL` 1) 1
+    where ones = take 64 $ zip [0..] $ iterate (`unsafeShiftL` 1) 1
           paar = [(mbsm bit, i) | (i, bit) <- ones]
-          mbsm x = fromIntegral $ (x * bitScanMagic) `shiftR` 58
+          mbsm x = fromIntegral $ (x * bitScanMagic) `unsafeShiftR` 58
 
 -- Population count function, good for bigger populations:
 -- Already optimized!
@@ -72,17 +71,18 @@ popCount1 = B.popCount
 
 {-# INLINE bbToSquares #-}
 bbToSquares :: BBoard -> [Square]
-bbToSquares !bb = unfoldr f bb
+bbToSquares bb = unfoldr f bb
     where f :: BBoard -> Maybe (Square, BBoard)
           f 0  = Nothing
-          f b = case firstOne b of sq -> Just (sq, b `clearBit` sq)
-          -- f !b = case firstOne b of sq -> case b `clearBit` sq of b1 -> Just (sq, b1)
+          f b = let !sq = firstOne b
+                    b' = b `clearBit` sq
+                in Just (sq, b')
 
 {-# INLINE bbToSquaresBB #-}
 bbToSquaresBB :: (Square -> BBoard) -> BBoard -> BBoard
 bbToSquaresBB f bb = go bb 0
     where go 0  w = w
-          go !b w = let !sq = firstOne b
-                        !b1 = b `clearBit` sq
-                        !w1 = f sq .|. w
-                    in go b1 w1
+          go b w = let !sq = firstOne b
+                       b' = b `clearBit` sq
+                       !w' = f sq .|. w
+                   in go b' w'

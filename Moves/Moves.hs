@@ -55,11 +55,27 @@ smoves bbmoves occup sq = database bbmoves `unsafeAt` idx
     where idx = dbbegins bbmoves `unsafeAt` sq + off
           off = fromIntegral
                     $ ((occup .&. masks bbmoves `unsafeAt` sq) * magics bbmoves `unsafeAt` sq)
-                        `shiftR` (shifts bbmoves `unsafeAt` sq)
+                        `unsafeShiftR` (shifts bbmoves `unsafeAt` sq)
+
+{-# INLINE smoves2 #-}
+smoves2 :: SlMoves -> SlMoves -> BBoard -> Square -> BBoard
+smoves2 bbmoves1 bbmoves2 occup sq
+    = bb1 .|. bb2
+    where bb1 = database bbmoves1 `unsafeAt` idx1
+          bb2 = database bbmoves2 `unsafeAt` idx2
+          idx1 = dbbegins bbmoves1 `unsafeAt` sq + off1
+          idx2 = dbbegins bbmoves2 `unsafeAt` sq + off2
+          off1 = fromIntegral
+                    $ ((occup .&. masks bbmoves1 `unsafeAt` sq) * magics bbmoves1 `unsafeAt` sq)
+                        `unsafeShiftR` (shifts bbmoves1 `unsafeAt` sq)
+          off2 = fromIntegral
+                    $ ((occup .&. masks bbmoves2 `unsafeAt` sq) * magics bbmoves2 `unsafeAt` sq)
+                        `unsafeShiftR` (shifts bbmoves2 `unsafeAt` sq)
 
 {-# INLINE fmoves #-}
 fmoves :: MaArray -> Square -> BBoard
-fmoves maarr sq = maarr `unsafeAt` sq
+-- fmoves maarr sq = maarr `unsafeAt` sq
+fmoves = unsafeAt
 
 {-# INLINE kAttacs #-}
 {-# INLINE rAttacs #-}
@@ -69,7 +85,7 @@ fmoves maarr sq = maarr `unsafeAt` sq
 kAttacs = fmoves movKings
 rAttacs = smoves rookMoves
 bAttacs = smoves bishopMoves
-qAttacs oc sq = bAttacs oc sq .|. rAttacs oc sq
+qAttacs = smoves2 bishopMoves rookMoves
 nAttacs = fmoves movKnights
 
 -- The moves of a white pawn (no captures)
@@ -79,10 +95,10 @@ pawnSlideW !sq !oc
     | row /= sec || bb2 .&. oc /= 0 = bb1
     | otherwise                     = bb12
     where !sqb = bit sq
-          !bb1 = sqb `shiftL` 8
-          !bb2 = bb1 `shiftL` 8
+          !bb1 = sqb `unsafeShiftL` 8
+          !bb2 = bb1 `unsafeShiftL` 8
           !bb12 = bb1 .|. bb2
-          !row = sq `shiftR` 3
+          !row = sq `unsafeShiftR` 3
           sec = 1
 
 -- The moves of a black pawn (no captures)
@@ -92,10 +108,10 @@ pawnSlideB !sq !oc
     | row /= sec || bb2 .&. oc /= 0 = bb1
     | otherwise                     = bb12
     where !sqb = bit sq
-          !bb1 = sqb `shiftR` 8
-          !bb2 = bb1 `shiftR` 8
+          !bb1 = sqb `unsafeShiftR` 8
+          !bb2 = bb1 `unsafeShiftR` 8
           !bb12 = bb1 .|. bb2
-          !row = sq `shiftR` 3
+          !row = sq `unsafeShiftR` 3
           sec = 6
 
 -- Pawn attacs
@@ -112,19 +128,19 @@ pMovs s White o = pawnSlideW s o
 pMovs s Black o = pawnSlideB s o
 
 pAll1Moves :: Color -> BBoard -> BBoard -> [(Square, Square)]
-pAll1Moves White !pawns !occup = map f $ bbToSquares $ (pawns `shiftL` 8) `less` occup
+pAll1Moves White !pawns !occup = map f $ bbToSquares $ (pawns `unsafeShiftL` 8) `less` occup
     where f !x = (x - 8, x)
-pAll1Moves Black !pawns !occup = map f $ bbToSquares $ (pawns `shiftR` 8) `less` occup
+pAll1Moves Black !pawns !occup = map f $ bbToSquares $ (pawns `unsafeShiftR` 8) `less` occup
     where f !x = (x + 8, x)
 
 pAll2Moves :: Color -> BBoard -> BBoard -> [(Square, Square)]
-pAll2Moves White pawns occup = map f $ bbToSquares $ (pawns2 `shiftL` 16) `less` occ2
+pAll2Moves White pawns occup = map f $ bbToSquares $ (pawns2 `unsafeShiftL` 16) `less` occ2
     where pawns2 = pawns .&. 0x000000000000FF00
-          occ2 = occup .|. (occup `shiftL` 8)
+          occ2 = occup .|. (occup `unsafeShiftL` 8)
           f !x = (x - 16, x)
-pAll2Moves Black pawns occup = map f $ bbToSquares $ (pawns2 `shiftR` 16) `less` occ2
+pAll2Moves Black pawns occup = map f $ bbToSquares $ (pawns2 `unsafeShiftR` 16) `less` occ2
     where pawns2 = pawns .&. 0x00FF000000000000
-          occ2 = occup .|. (occup `shiftR` 8)
+          occ2 = occup .|. (occup `unsafeShiftR` 8)
           f !x = (x + 16, x)
 
 {-# INLINE fAttacs #-}

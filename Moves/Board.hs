@@ -527,7 +527,7 @@ updatePosAttacs p = p {
           !tblKAtt = kAttacs $ firstOne $ kings p .&. black p
           !twhAttacs = twhPAtt .|. twhNAtt .|. twhBAtt .|. twhRAtt .|. twhQAtt .|. twhKAtt
           !tblAttacs = tblPAtt .|. tblNAtt .|. tblBAtt .|. tblRAtt .|. tblQAtt .|. tblKAtt
-          !ocp = occup p
+          ocp = occup p
 
 updatePosCheck :: MyPos -> MyPos
 updatePosCheck p = p {
