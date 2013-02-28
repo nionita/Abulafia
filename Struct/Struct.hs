@@ -103,28 +103,29 @@ epcas = bpepcas . basicPos
 
 {-
 Piece coding in MyPos (vertical over slide, kkrq and diag):
-Pawn   = 001
-Knight = 010
-King   = 011
-Bishop = 101
-Rook   = 110
-Queen  = 111
+Piece    slide kkrq diag
+Pawn   = 0     0    1
+Knight = 0     1    0
+King   = 0     1    1
+Bishop = 1     0    1
+Rook   = 1     1    0
+Queen  = 1     1    1
 -}
-
-pcode2Piece :: Array Int Piece
-pcode2Piece = array (1, 7) [
-                       (1, Pawn), (2, Knight), (3, King),
-                       (5, Bishop), (6, Rook), (7, Queen)
-                  ]
 
 {-# INLINE pieceAt #-}
 pieceAt :: MyPos -> BBoard -> Piece
--- pieceAt !p bsq = pcode2Piece `unsafeAt` fromIntegral shr
-pieceAt !p bsq = pcode2Piece ! fromIntegral shr
-    where shr = tslide .|. tkkrq .|. tdiag
-          tslide = if slide p .&. bsq /= 0 then 4 else 0 :: BBoard
-          tkkrq  = if kkrq p  .&. bsq /= 0 then 2 else 0
-          tdiag  = if diag p  .&. bsq /= 0 then 1 else 0
+pieceAt !p bsq
+    = case bsq .&. diag p of
+        0 -> case bsq .&. slide p of
+               0 -> Knight
+               _ -> Rook
+        _ -> case bsq .&. kkrq p of
+               0 -> case bsq .&. slide p of
+                      0 -> Pawn
+                      _ -> Bishop
+               _ -> case bsq .&. slide p of
+                      0 -> King
+                      _ -> Queen
 
 {-# INLINE tabla #-}
 tabla :: MyPos -> Square -> TabCont
@@ -133,7 +134,7 @@ tabla p sq
     | otherwise            = Busy c f
     where c = if white p .&. bsq /= 0 then White else Black
           f = pieceAt p bsq
-          bsq = bit sq
+          bsq = 1 `unsafeShiftL` sq
 
 newtype Move = Move Word32 deriving Eq
 
@@ -317,19 +318,25 @@ makeEnPas f t del = Move w2
 -- Promotions:
 transfCodes :: Array Int Piece
 transfCodes = listArray (0, 3) [Knight, Bishop, Rook, Queen]
-transfRev :: Array Piece Word32
-transfRev   = array (Knight, Queen)
-                    [(Knight, 0), (Bishop, 0x4000), (Rook, 0x8000), (Queen, 0xC000)]
+-- transfRev :: Array Piece Word32
+-- transfRev   = array (Knight, Queen)
+--                     [(Knight, 0), (Bishop, 0x4000), (Rook, 0x8000), (Queen, 0xC000)]
 
 moveIsTransf :: Move -> Bool
 moveIsTransf (Move w) = testBit w 13
 
-moveTransfPiece (Move w) = transfCodes ! fromIntegral x
+moveTransfPiece (Move w) = transfCodes `unsafeAt` fromIntegral x
     where x = (w `shiftR` 14) .&. 0x03
 
+{-# INLINE makeTransf #-}
 makeTransf :: Piece -> Square -> Square -> Move
-makeTransf p f t = Move $ setBit w 13
-    where w = (transfRev ! p) .|. encodeFromTo f t
+makeTransf p f t = Move w
+    where !w = tc p .|. encodeFromTo f t .|. b13
+          b13 = 1 `unsafeShiftL` 13	-- bit 13
+          tc Queen  = 0xC000
+          tc Rook   = 0x8000
+          tc Bishop = 0x4000
+          tc _      = 0
 
 -- General functions for move encoding / decoding
 encodeFromTo :: Square -> Square -> Word32
@@ -354,6 +361,7 @@ fromSquare (Move m) = fromIntegral (m `shiftR` 6) .&. 0x3F
 toSquare :: Move -> Square
 toSquare (Move m) = fromIntegral (m .&. 0x3F)
 
+checkCastle :: Move -> MyPos -> Move
 checkCastle m p
     | moveIsNormal m && isKingMoving m p
         = if ds == 2
@@ -367,6 +375,7 @@ checkCastle m p
           ds = d - s
           c = moving p
 
+checkEnPas :: Move -> MyPos -> Move
 checkEnPas m p
     | moveIsNormal m && isPawnMoving m p
          = if (epcas p .&. epMask) `testBit` t then makeEnPas f t del else m
@@ -375,6 +384,7 @@ checkEnPas m p
           t = toSquare m
           del = t + if moving p == White then -8 else 8
 
+activateTransf :: Char -> Move -> Move
 activateTransf b m = makeTransf p f t
     where f = fromSquare m
           t = toSquare m

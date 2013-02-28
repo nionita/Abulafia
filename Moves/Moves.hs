@@ -90,12 +90,11 @@ nAttacs = fmoves movKnights
 
 -- The moves of a white pawn (no captures)
 pawnSlideW :: Square -> BBoard -> BBoard
-pawnSlideW !sq !oc
+pawnSlideW !sq oc
     | bb1 .&. oc /= 0               = 0
     | row /= sec || bb2 .&. oc /= 0 = bb1
     | otherwise                     = bb12
-    where !sqb = bit sq
-          !bb1 = sqb `unsafeShiftL` 8
+    where bb1 = 1 `unsafeShiftL` (sq + 8)
           !bb2 = bb1 `unsafeShiftL` 8
           !bb12 = bb1 .|. bb2
           !row = sq `unsafeShiftR` 3
@@ -103,12 +102,11 @@ pawnSlideW !sq !oc
 
 -- The moves of a black pawn (no captures)
 pawnSlideB :: Square -> BBoard -> BBoard
-pawnSlideB !sq !oc
+pawnSlideB !sq oc
     | bb1 .&. oc /= 0               = 0
     | row /= sec || bb2 .&. oc /= 0 = bb1
     | otherwise                     = bb12
-    where !sqb = bit sq
-          !bb1 = sqb `unsafeShiftR` 8
+    where bb1 = 1 `unsafeShiftL` (sq - 8)	-- here L is ok! Replaces a 'bit sq `shiftR` 8'
           !bb2 = bb1 `unsafeShiftR` 8
           !bb12 = bb1 .|. bb2
           !row = sq `unsafeShiftR` 3
