@@ -32,7 +32,6 @@ type ShArray = UArray Square Int
 type MaArray = UArray Square BBoard
 type DbArray = UArray Int BBoard
 
--- data Piece = Pawn | Knight | King | Bishop | Rook | Queen
 data Piece = Pawn | Knight | Bishop | Rook | Queen | King
     deriving (Eq, Ord, Enum, Ix, Show)
 

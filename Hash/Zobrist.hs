@@ -21,21 +21,6 @@ import Control.Exception (assert)
 
 import Struct.Struct
 
--- type ZKey = Word64
-
-{-# INLINE hashMe #-}
-hashMe :: BasicPos -> ZKey
--- hashMe p = black p `xor` slide p `xor` kkrq p `xor` diag p `xor` epcas p
--- hashMe p = bpblack p `xor` (bpslide p `rotateL` 3)
---              `xor` (bpkkrq p `rotateL` 7)
---              `xor` (bpdiag p `rotateL` 13)
---              `xor` (bpepcas p `rotateL` 29)
-hashMe p = bpblack p `xor` (bpslide p `rotateL` 13)
-             `xor` (bpkkrq p `rotateL` 19)
-             `xor` (bpdiag p `rotateL` 43)
-             `xor` (bpepcas p `rotateL` 59)
-
--- genInit = 2*3*5*7*11*13 + 1   -- 1210
 genInit = 118863
 zLen = 781
 

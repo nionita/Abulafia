@@ -54,8 +54,10 @@ Executable Abulafia
                -funbox-strict-fields -threaded -rtsopts
                -fspec-constr-count=24
                -funfolding-use-threshold=32
+               -- -fspec-constr-count=4
+               -- -funfolding-use-threshold=16
                -ddump-simpl -ddump-to-file -dsuppress-all -dsuppress-uniques
-               -- -ddump-cmm
+               -- -ddump-opt-cmm -ddump-asm
   if flag(profile)
     C-sources: Cbits/rts_hooksp.c
     -- GHC-Options: -auto-all
@@ -70,8 +72,10 @@ Executable FixPlayFen
   Build-depends: base >= 4, array, mtl, parsec, transformers, QuickCheck
   GHC-Options: -O2 -Wall
                -funbox-strict-fields -threaded -rtsopts
-               -fspec-constr-count=4
+               -fspec-constr-count=24
                -funfolding-use-threshold=32
+               -- -fspec-constr-count=4
+               -- -funfolding-use-threshold=16
                -- -fext-core
   if flag(profile)
     GHC-Options: -fprof-auto-top
