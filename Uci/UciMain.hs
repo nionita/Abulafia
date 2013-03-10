@@ -40,7 +40,7 @@ initContext cf@(GConfig cfg) = do
     hi <- newHist
     args <- getArgs
     let argFile = if null args then Nothing else Just (head args)
-    (parc, evs) <- makeEvalState cfg progVersion argFile
+    (parc, evs) <- makeEvalState argFile progVersion progVerSuff
     let chg = Chg {
             config = cf,
             working = False,

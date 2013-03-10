@@ -25,10 +25,6 @@ data MyState = MyState {
     }
 
 data EvalState = EvalState {
-        -- esSamples, esSteps :: !Int,
-        -- esAlpha, esAngle, esAmpl, esFNorm :: !Double,
-        -- esDParams, esDeviation, esLastDev :: [Double],
         esDParams :: [Double],
         esIParams :: [Int]
-        -- esStats :: UArray (Int, Int) Int
-    }
+    } deriving Show
