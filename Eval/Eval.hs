@@ -123,7 +123,7 @@ granCoarse, granCoarse2, granCoarseM, maxStatsDepth, maxStatsIntvs :: Int
 granCoarse    = 4	-- coarse granularity
 granCoarse2   = granCoarse `div` 2
 granCoarseM   = complement (granCoarse - 1)
--- divFactor     = 4	-- for kind of fractional calculation
+shift2Cp      = 3	-- we have 2^shift2Cp units per centipawn
 maxStatsDepth = 12	-- for error statistics of the eval function - maximum depth
 maxStatsIntvs = 20	-- number of difference interval
 -- statsIntv     = 25	-- difference interval length
@@ -175,7 +175,7 @@ itemEval p c (EvIt a) = evalItem p c a
 normalEval :: MyPos -> Color -> EvalState -> (Int, [Int])
 normalEval p c sti = (sc, feat)
     where !feat = concatMap (itemEval p c) evalItems
-          !sc   = feat <*> esIParams sti
+          !sc   = feat <*> esIParams sti `shiftR` shift2Cp
 
 evalSideNoPawns :: MyPos -> Color -> EvalState -> (Int, [Int])
 evalSideNoPawns p c sti
@@ -280,7 +280,7 @@ data KingSafe = KingSafe
 
 instance EvalItem KingSafe where
     evalItem p c _ = kingSafe p c
-    evalItemNDL _ = [("kingSafe", (1, (0, 20)))]
+    evalItemNDL _ = [("kingSafe", (4, (0, 20)))]
 
 -- This king safety is very primitive and will have to be reconsidered as one of the first!
 -- We just count total attacs in our kings zone and make the difference
@@ -303,7 +303,7 @@ data Material = Material
 
 instance EvalItem Material where
     evalItem p c _ = materDiff p c
-    evalItemNDL _ = [("materialDiff", (1, (1, 1)))]
+    evalItemNDL _ = [("materialDiff", (8, (8, 8)))]
 
 materDiff :: MyPos -> Color -> IParams
 materDiff p _ = [mater p]
@@ -313,7 +313,7 @@ data KingOpen = KingOpen
 
 instance EvalItem KingOpen where
     evalItem p c _ = kingOpen p c
-    evalItemNDL _ = [ ("kingOpenOwn", (-4, (-20, 20))), ("kingOpenAdv", (1, (-20, 20)))] 
+    evalItemNDL _ = [ ("kingOpenOwn", (-20, (-48, 1))), ("kingOpenAdv", (20, (0, 32)))] 
 
 -- Openness can be tought only with pawns (like we take) or all pieces
 kingOpen :: MyPos -> Color -> IParams
@@ -343,7 +343,7 @@ data KingCenter = KingCenter
 
 instance EvalItem KingCenter where
     evalItem p c _ = kingCenter p c
-    evalItemNDL _  = [ ("kingCenter", (-12, (-100, 20))) ]
+    evalItemNDL _  = [ ("kingCenter", (-120, (-200, 0))) ]
 
 kingCenter :: MyPos -> Color -> IParams
 kingCenter p _ = [ kcd ]
@@ -361,9 +361,9 @@ data Mobility = Mobility	-- "safe" moves
 
 instance EvalItem Mobility where
     evalItem p c _ = mobDiff p c
-    evalItemNDL _ = [ ("mobilityKnight", (11, (0, 50))),
-                      ("mobilityBishop", (8, (0, 50))),
-                      ("mobilityRook", (9, (0, 50))),
+    evalItemNDL _ = [ ("mobilityKnight", (72, (60, 100))),
+                      ("mobilityBishop", (72, (60, 100))),
+                      ("mobilityRook", (48, (40, 100))),
                       ("mobilityQueen", (3, (0, 50))) ]
 
 -- Here we do not calculate pawn mobility (which, calculated as attacs, is useless)
@@ -391,7 +391,7 @@ data Center = Center
 
 instance EvalItem Center where
     evalItem p c _ = centerDiff p c
-    evalItemNDL _ = [("centerAttacs", (9, (0, 100)))]
+    evalItemNDL _ = [("centerAttacs", (72, (50, 100)))]
 
 centerDiff :: MyPos -> Color -> IParams
 centerDiff p _ = [wb]
@@ -455,7 +455,7 @@ data LastLine = LastLine
 
 instance EvalItem LastLine where
     evalItem p c _ = lastline p c
-    evalItemNDL _ = [("lastLinePenalty", (3, (-30, 80)))]
+    evalItemNDL _ = [("lastLinePenalty", (8, (0, 24)))]
 
 lastline :: MyPos -> Color -> IParams
 lastline p _ = [cdiff]
@@ -482,8 +482,8 @@ data Redundance = Redundance
 
 instance EvalItem Redundance where
     evalItem p c _ = evalRedundance p c
-    evalItemNDL _ = [("bishopPair",       (50,  (0, 100))),
-                     ("redundanceRook",   (-15,  (-50, 0))) ]
+    evalItemNDL _ = [("bishopPair",       (320,  (100, 400))),
+                     ("redundanceRook",   (-104,  (-150, 0))) ]
 
 evalRedundance :: MyPos -> Color -> [Int]
 evalRedundance p _ = [bp, rr]
@@ -505,7 +505,7 @@ data NRCorrection = NRCorrection
 
 instance EvalItem NRCorrection where
     evalItem p _ _ = evalNRCorrection p
-    evalItemNDL _  = [("nrCorrection", (1, (0, 1)))]
+    evalItemNDL _  = [("nrCorrection", (0, (0, 8)))]
 
 evalNRCorrection :: MyPos -> [Int]
 evalNRCorrection p = [md]
@@ -522,7 +522,7 @@ data RookPawn = RookPawn
 
 instance EvalItem RookPawn where
     evalItem p c _ = evalRookPawn p c
-    evalItemNDL _ = [("rookPawn", (-15, (-30, 0))) ]
+    evalItemNDL _ = [("rookPawn", (-64, (-120, 0))) ]
 
 evalRookPawn :: MyPos -> Color -> [Int]
 evalRookPawn p _ = [rps]
@@ -555,11 +555,11 @@ bPassPBB sq = foldl' (.|.) 0 $ takeWhile (/= 0) $ iterate (`shiftR` 8) bsqs
 
 instance EvalItem PassPawns where
     evalItem p c _ = passPawns p c
-    evalItemNDL _  = [("passPawnBonus", (10, (0, 100))),
-                      ("passPawn4", ( 50, (0, 200))),
-                      ("passPawn5", ( 80, (0, 240))),
-                      ("passPawn6", (140, (0, 280))),
-                      ("passPawn7", (230, (0, 300))) ]
+    evalItemNDL _  = [("passPawnBonus", (104, (  0, 160))),
+                      ("passPawn4",     (424, (400, 480))),
+                      ("passPawn5",     (520, (520, 640))),
+                      ("passPawn6",     (1132, (1100, 1200))),
+                      ("passPawn7",     (1920, (1600, 2300))) ]
 
 passPawns :: MyPos -> Color -> IParams
 passPawns p _ = [dfp, dfp4, dfp5, dfp6, dfp7]
