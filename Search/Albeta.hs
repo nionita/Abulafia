@@ -335,9 +335,13 @@ alphaBeta abc = {-# SCC "alphaBeta" #-} do
          else {-# SCC "alphaBetaSearchFull" #-} runSearch (searchFull lpv) pvs0
     -- when aborted, return the last found good move
     -- we have to trust that abort is never done in draft 1!
-    if abort (snd r)
-       then return (fromMaybe 0 $ lastscore abc, lastpv abc, [])
-       else return $! case fst r of (s, Seq path, Alt rmvs') -> (s, path, rmvs')
+    -- if abort (snd r)
+    --    then return (fromMaybe 0 $ lastscore abc, lastpv abc, [])
+    --    else return $! case fst r of (s, Seq path, Alt rmvs') -> (s, path, rmvs')
+    case fst r of
+        (s, Seq path, Alt rmvs') -> if null path
+           then return (fromMaybe 0 $ lastscore abc, lastpv abc, [])
+           else return (s, path, rmvs')
 
 {--
 aspirWin :: Node m => Int -> Int -> Int -> Seq Move -> Alt Move -> Int -> m (Int, Seq Move, Alt Move)
@@ -374,30 +378,27 @@ pvRootSearch a b d lastpath rmvs aspir = do
     nstf <- pvLoop (pvInnerRoot (pathFromScore "Beta" b) d) nsti edges
     reportStats
     let failedlow = (a, emptySeq, edges)	-- just to permit aspiration to retry
-    abrt <- gets abort
-    if abrt
-       then return failedlow
-       else do
-         let s' = pathScore (cursc nstf)
-         lift $ informStr $ "pvRootSearch: cursc = " ++ show (cursc nstf) ++ ", a = " ++ show a
-         if s' <= a	-- failed low
-              then do
-                when (not aspir) $ lift $ informStr "Failed low at root!"
-                return failedlow
-              else do
-                 -- lift $ mapM_ (\m -> informStr $ "Root move: " ++ show m) (pvsl nstf)
-                 albest' <- gets (albest . ronly)
-                 (s, p) <- if s' >= b
-                              then return (s', unseq $ pathMoves (cursc nstf))
-                              else lift $ choose albest'
-                                        $ sortBy (comparing fstdesc)
-                                        $ map pvslToPair
-                                        $ filter pvGood $ pvsl nstf
-                 when (d < depthForCM) $ informBest s d p
-                 let (best':_) = p
-                     allrmvs = if s' >= b then unalt edges else map pvslToMove (pvsl nstf)
-                     xrmvs = Alt $ best' : delete best' allrmvs	-- best on top
-                 return (s, Seq p, xrmvs)
+    let s' = pathScore (cursc nstf)
+    lift $ informStr $ "pvRootSearch: cursc = " ++ show (cursc nstf) ++ ", a = " ++ show a
+    if s' <= a	-- failed low
+         then do
+           when (not aspir) $ lift $ informStr "Failed low at root!"
+           return failedlow
+         else do
+            -- lift $ mapM_ (\m -> informStr $ "Root move: " ++ show m) (pvsl nstf)
+            albest' <- gets (albest . ronly)
+            abrt <- gets abort
+            (s, p) <- if s' >= b || abrt
+                         then return (s', unseq $ pathMoves (cursc nstf))
+                         else lift $ choose albest'
+                                   $ sortBy (comparing fstdesc)
+                                   $ map pvslToPair
+                                   $ filter pvGood $ pvsl nstf
+            when (d < depthForCM) $ informBest s d p
+            let (best':_) = p
+                allrmvs = if s' >= b then unalt edges else map pvslToMove (pvsl nstf)
+                xrmvs = Alt $ best' : delete best' allrmvs	-- best on top
+            return (s, Seq p, xrmvs)
     where fstdesc (a', _) = -a'
 
 pvslToPair :: Pvsl -> (Int, [Move])
@@ -543,68 +544,72 @@ pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
 checkFailOrPVRoot :: Node m => SStats -> Path -> Int -> Move -> Path
                   -> NodeState -> Search m (Bool, NodeState)
 checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
-    sst <- get
-    let !mn     = movno nst
-        !a      = cursc nst
-        -- !np     = pathMoves s
-        !nodes0 = sNodes xstats + sRSuc xstats
-        !nodes1 = sNodes (stats sst) + sRSuc (stats sst)
-        !nodes' = nodes1 - nodes0
-        pvg    = Pvsl s nodes' True	-- the good
-        pvb    = Pvsl s nodes' False	-- the bad
-        -- xpvslg = insertToPvs d pvg (pvsl nst)	-- the good
-        -- xpvslb = insertToPvs d pvb (pvsl nst)	-- the bad
-        de = pathDepth s
-    if d == 1	-- for draft 1 we search all root moves exact
-       then {-# SCC "allExactRoot" #-} do
-            let typ = 2
-            when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
-            let nst1 = if s > a	-- we should probably even go with PVNode for all root moves here
-                          -- then nst { cursc = s, nxtnt = nextNodeType (nxtnt nst), forpv = False }
-                          then nst { nxtnt = nextNodeType (nxtnt nst) }
-                          else nst
-            xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
-            return (False, nst1 {movno = mn + 1, pvsl = xpvslg, pvcont = emptySeq})
-       else if s <= a
-               then {-# SCC "scoreWorseAtRoot" #-} do	-- failed low
-                 -- when in a cut node and the move dissapointed - negative history
-                 -- when (useNegHist && forpv nst && a == b - 1 && mn <= negHistMNo) -- Check this!
-                 --      $ lift $ betaMove False d (absdp sst) e
-                 if forpv nst
-                    then return (True, nst { cursc = s })	-- i.e we failed low in aspiration
-                    else do
-                      kill1 <- newKiller d s nst
-                      xpvslb <- insertToPvs d pvb (pvsl nst)	-- the bad
-                      -- should we set here cursc on combinePath s a if s == a, so that we have always some sequence?
-                      let nst1 = nst { movno = mn + 1, pvsl = xpvslb, killer = kill1, pvcont = emptySeq }
-                      return (False, nst1)
-               else if s >= b
-                 then {-# SCC "scoreBetaCutRoot" #-} do
-                   -- what when a root move fails high? We are in aspiration
-                   let typ = 1	-- best move is e and is beta cut (score is lower limit)
-                   when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
-                   lift $ betaMove True d (absdp sst) e
-                   xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
-                   !csc <- checkPath nst d "cpl 3" $ if s > b then combinePath s b else bestPath s b
-                   pindent $ "beta cut: " ++ show csc
-                   let nst1 = nst { cursc = csc, pvsl = xpvslg, pvcont = emptySeq }
-                   -- lift $ logmes $ "Root move " ++ show e ++ " failed high: " ++ show s
-                   -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
-                   return (True, nst1)
-                 else {-# SCC "scoreBetterAtRoot" #-} do	-- means: > a && < b
-                   let sc = pathScore s
-                       pa = unseq $ pathMoves s
-                       le = pathDepth s
-                   informBest (scoreToExtern sc le) (draft $ ronly sst) pa
-                   let typ = 2	-- best move so far (score is exact)
-                   when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ sc e nodes'
-                   xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
-                   let nst1 = nst { cursc = s, nxtnt = nextNodeType (nxtnt nst),
-                                    forpv = False, movno = mn + 1,
-                                    pvsl = xpvslg, pvcont = emptySeq }
-                   -- lift $ logmes $ "Root move " ++ show e ++ " improves alpha: " ++ show s
-                   -- lift $ informStr $ "Better (" ++ show s ++ "):" ++ show np
-                   return (False, nst1)
+    abrt <- timeToAbort
+    if abrt
+       then return (True, nst)
+       else do
+         sst <- get
+         let !mn     = movno nst
+             !a      = cursc nst
+             -- !np     = pathMoves s
+             !nodes0 = sNodes xstats + sRSuc xstats
+             !nodes1 = sNodes (stats sst) + sRSuc (stats sst)
+             !nodes' = nodes1 - nodes0
+             pvg    = Pvsl s nodes' True	-- the good
+             pvb    = Pvsl s nodes' False	-- the bad
+             -- xpvslg = insertToPvs d pvg (pvsl nst)	-- the good
+             -- xpvslb = insertToPvs d pvb (pvsl nst)	-- the bad
+             de = pathDepth s
+         if d == 1	-- for draft 1 we search all root moves exact
+            then {-# SCC "allExactRoot" #-} do
+                 let typ = 2
+                 when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
+                 let nst1 = if s > a	-- we should probably even go with PVNode for all root moves here
+                               -- then nst { cursc = s, nxtnt = nextNodeType (nxtnt nst), forpv = False }
+                               then nst { nxtnt = nextNodeType (nxtnt nst) }
+                               else nst
+                 xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
+                 return (False, nst1 {movno = mn + 1, pvsl = xpvslg, pvcont = emptySeq})
+            else if s <= a
+                    then {-# SCC "scoreWorseAtRoot" #-} do	-- failed low
+                      -- when in a cut node and the move dissapointed - negative history
+                      -- when (useNegHist && forpv nst && a == b - 1 && mn <= negHistMNo) -- Check this!
+                      --      $ lift $ betaMove False d (absdp sst) e
+                      if forpv nst
+                         then return (True, nst { cursc = s })	-- i.e we failed low in aspiration
+                         else do
+                           kill1 <- newKiller d s nst
+                           xpvslb <- insertToPvs d pvb (pvsl nst)	-- the bad
+                           -- should we set here cursc on combinePath s a if s == a, so that we have always some sequence?
+                           let nst1 = nst { movno = mn + 1, pvsl = xpvslb, killer = kill1, pvcont = emptySeq }
+                           return (False, nst1)
+                    else if s >= b
+                      then {-# SCC "scoreBetaCutRoot" #-} do
+                        -- what when a root move fails high? We are in aspiration
+                        let typ = 1	-- best move is e and is beta cut (score is lower limit)
+                        when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
+                        lift $ betaMove True d (absdp sst) e
+                        xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
+                        !csc <- checkPath nst d "cpl 3" $ if s > b then combinePath s b else bestPath s b
+                        pindent $ "beta cut: " ++ show csc
+                        let nst1 = nst { cursc = csc, pvsl = xpvslg, pvcont = emptySeq }
+                        -- lift $ logmes $ "Root move " ++ show e ++ " failed high: " ++ show s
+                        -- lift $ informStr $ "Cut (" ++ show b ++ "): " ++ show np
+                        return (True, nst1)
+                      else {-# SCC "scoreBetterAtRoot" #-} do	-- means: > a && < b
+                        let sc = pathScore s
+                            pa = unseq $ pathMoves s
+                            le = pathDepth s
+                        informBest (scoreToExtern sc le) (draft $ ronly sst) pa
+                        let typ = 2	-- best move so far (score is exact)
+                        when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ sc e nodes'
+                        xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
+                        let nst1 = nst { cursc = s, nxtnt = nextNodeType (nxtnt nst),
+                                         forpv = False, movno = mn + 1,
+                                         pvsl = xpvslg, pvcont = emptySeq }
+                        -- lift $ logmes $ "Root move " ++ show e ++ " improves alpha: " ++ show s
+                        -- lift $ informStr $ "Better (" ++ show s ++ "):" ++ show np
+                        return (False, nst1)
 
 insertToPvs :: Node m => Int -> Pvsl -> [Pvsl] -> Search m [Pvsl]
 insertToPvs _ p [] = return [p]
