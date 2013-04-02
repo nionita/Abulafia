@@ -1,37 +1,28 @@
 module Eval.FileParams (
-    learnConfigFilePrefix,
     makeEvalState,
     fileToState
   ) where
 
--- import Control.Monad
 import Data.Char (isSpace)
-import Data.List (isPrefixOf, sortBy)
-import Data.Ord (comparing)
+import Data.List (tails, intersperse)
 import System.Directory
--- import System.Environment (getArgs)
--- import System.IO
 
 import Struct.Status(EvalState)
-import Config.ConfigClass
 import Eval.Eval (initEvalState)
 
-learnConfigFilePrefix :: String
-learnConfigFilePrefix = "evalParamsL"
-
 -- Opens a parameter file for eval, read it and create an eval state
-makeEvalState :: Config c => c -> String -> Maybe FilePath -> IO (FilePath, EvalState)
-makeEvalState cfg pver argfile =
+makeEvalState :: Maybe FilePath -> String -> String -> IO (FilePath, EvalState)
+makeEvalState argfile pver psuff =
     case argfile of
-        Just afn -> do	-- config file as argument: it must be an evolution play
+        Just afn -> do	-- config file as argument
             fex <- doesFileExist afn
             if fex then filState afn afn else defState
-        Nothing  -> case evalConfigFile cfg pver of	-- from general config
-                           Nothing -> defState
-                           Just fn -> do
-                               fex <- doesFileExist fn
-                               if fex then filState fn "" else defState
+        Nothing  -> go $ configFileNames pver psuff
     where defState = return ("", initEvalState [])
+          go [] = defState
+          go (f:fs) = do
+             fex <- doesFileExist f
+             if fex then filState f "" else go fs
 
 filState :: FilePath -> String -> IO (String, EvalState)
 filState fn ident = do
@@ -41,19 +32,14 @@ filState fn ident = do
 fileToState :: FilePath -> IO EvalState
 fileToState fn = fileToParams `fmap` readFile fn >>= return . initEvalState
 
-evalConfigFile :: Config c => c -> String -> Maybe String
-evalConfigFile cfg pver = getSParam cfg "evalParamsFile"
-                       >>= \fn -> Just $ fn ++ "-" ++ pver ++ ".txt"
-
-getLastEvalConfigFile :: IO (Maybe String)
-getLastEvalConfigFile = do
-    allFiles <- getCurrentDirectory >>= getDirectoryContents
-    let allCFiles = filter (learnConfigFilePrefix `isPrefixOf`) allFiles
-    if null allCFiles
-       then return Nothing
-       else do
-            tstamps <- mapM getModificationTime allCFiles
-            return $ Just $ head $ reverse $ map snd $ sortBy (comparing fst) $ zip tstamps allCFiles
+-- This produces a list of config file names depending on
+-- program version and programm version suffix
+-- The most specific will be first, the most general last
+configFileNames :: String -> String -> [String]
+configFileNames pver psuff = map cfname $ tails [psuff, pver]
+    where fnprf = "evalParams"
+          fnsuf = ".txt"
+          cfname = concat . (++ [fnsuf]) . intersperse "-" . (fnprf :) . reverse
 
 fileToParams :: String -> [(String, Double)]
 fileToParams = map readParam . nocomments . lines

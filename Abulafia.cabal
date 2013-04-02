@@ -54,8 +54,10 @@ Executable Abulafia
                -funbox-strict-fields -threaded -rtsopts
                -fspec-constr-count=24
                -funfolding-use-threshold=32
+               -- -fspec-constr-count=4
+               -- -funfolding-use-threshold=16
                -ddump-simpl -ddump-to-file -dsuppress-all -dsuppress-uniques
-               -- -ddump-cmm
+               -ddump-opt-cmm -ddump-asm
   if flag(profile)
     C-sources: Cbits/rts_hooksp.c
     -- GHC-Options: -auto-all
@@ -65,25 +67,29 @@ Executable Abulafia
     -- GHC-Options: -with-rtsopts=-N2 -M256m -H128m
     GHC-Options: -with-rtsopts=-N3
 
-Executable VizGraph
-  Main-is:       Main/VizGraph.hs
-  Build-depends: base >= 4
-  GHC-Options:   -O2
-
-Executable PlotEvolve
-  Main-is:	Main/EvolveToPlot.hs
-  Build-depends:	base >= 4, filepath, regex-compat
-
 Executable FixPlayFen
   Main-is:	Main/MainFixPlayFen.hs
   Build-depends: base >= 4, array, mtl, parsec, transformers, vector-algorithms, primitive
   GHC-Options: -O2 -Wall
                -funbox-strict-fields -threaded -rtsopts
-               -fspec-constr-count=4
+               -fspec-constr-count=24
                -funfolding-use-threshold=32
+               -- -fspec-constr-count=4
+               -- -funfolding-use-threshold=16
                -- -fext-core
   if flag(profile)
     GHC-Options: -fprof-auto-top
+
+{-
+Executable VizGraph
+  Main-is:       Main/VizGraph.hs
+  Build-depends: base >= 4
+  GHC-Options:   -O2
+  CPP-Options:   -DVIZTREE
+
+Executable PlotEvolve
+  Main-is:	Main/EvolveToPlot.hs
+  Build-depends:	base >= 4, filepath, regex-compat
 
 -- Executable BenchFixPlayFen
 --   Main-is:	Tests/TestFixPlayFen.hs
@@ -99,8 +105,18 @@ Executable BenchTransTab
 
 Executable Evolve
   Main-is:	Main/MainEvolve.hs
-  Build-depends: base >= 4, process, filepath, bytestring, old-locale
+  Build-depends: base >= 4, process, filepath, bytestring, old-locale, async
   GHC-Options:	-O2 -Wall -threaded -rtsopts
+
+Executable EvolveSim
+  Main-is:	Main/MainEvolveSim.hs
+  Build-depends: base >= 4, process, filepath, bytestring, old-locale, async
+  GHC-Options:	-O2 -Wall -threaded -rtsopts
+
+Executable CLOPDriver
+  Main-is:       Main/MainCLOP.hs
+  Build-depends: base >= 4, process, filepath, bytestring, old-locale, async
+  GHC-Options:	-O2 -Wall
 
 -- Executable LearnSTS
 --   Main-is:             Tests/LearnSTS.hs
@@ -143,3 +159,4 @@ Executable OptFeatVects
 --    GHC-Options: -O2 -funbox-strict-fields -threaded -keep-tmp-files
 --    if flag(profile)
 --      GHC-Options: -auto-all
+-}

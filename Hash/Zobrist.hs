@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 module Hash.Zobrist (
     ZKey,
     zobrist,
@@ -7,9 +9,11 @@ module Hash.Zobrist (
     zobEP
 ) where
 
+import Data.Array.Base
 import Data.Array.IArray
 import Data.Array.Unboxed
 import Data.Bits
+import GHC.Arr (unsafeIndex)
 import Data.Word
 import System.Random
 import Foreign.Storable
@@ -17,21 +21,6 @@ import Control.Exception (assert)
 
 import Struct.Struct
 
--- type ZKey = Word64
-
-{-# INLINE hashMe #-}
-hashMe :: BasicPos -> ZKey
--- hashMe p = black p `xor` slide p `xor` kkrq p `xor` diag p `xor` epcas p
--- hashMe p = bpblack p `xor` (bpslide p `rotateL` 3)
---              `xor` (bpkkrq p `rotateL` 7)
---              `xor` (bpdiag p `rotateL` 13)
---              `xor` (bpepcas p `rotateL` 29)
-hashMe p = bpblack p `xor` (bpslide p `rotateL` 13)
-             `xor` (bpkkrq p `rotateL` 19)
-             `xor` (bpdiag p `rotateL` 43)
-             `xor` (bpepcas p `rotateL` 59)
-
--- genInit = 2*3*5*7*11*13 + 1   -- 1210
 genInit = 118863
 zLen = 781
 
@@ -54,14 +43,16 @@ randomW64s = toW64 $ map fromIntegral randomInts
 
 -- When black is moving: xor with that number
 zobMove :: ZKey
-zobMove = fromIntegral $ zobrist!(12*64)
+zobMove = fromIntegral $ zobrist `unsafeAt` (12*64)
 
 -- For every pice type of every color on every valid
 -- field: one index in zobrist (0 to 12*64-1)
+{-# INLINE zobPiece #-}
 zobPiece :: Color -> Piece -> Square -> ZKey
-zobPiece c p sq = zobrist!idx
-    where p2int = if c == White then p2intw else p2intb
-          idx = (p2int!p) .|. sq
+zobPiece White p sq = zobrist `unsafeAt` idx
+    where !idx = (p2intw `unsafeAt` unsafeIndex (Pawn, King) p) + sq
+zobPiece Black p sq = zobrist `unsafeAt` idx
+    where !idx = (p2intb `unsafeAt` unsafeIndex (Pawn, King) p) + sq
 
 p2intw, p2intb :: UArray Piece Int
 p2intw = array (Pawn, King) $ zip [Pawn .. King] [0, 64 .. ]
@@ -70,10 +61,10 @@ p2intb = array (Pawn, King) $ zip [Pawn .. King] [b0, b1 .. ]
           b1 = b0 + 64
 
 zobCastBegin = 12*64+1
-zobCastKw = zobrist!zobCastBegin
-zobCastQw = zobrist!(zobCastBegin + 1)
-zobCastKb = zobrist!(zobCastBegin + 2)
-zobCastQb = zobrist!(zobCastBegin + 3)
+zobCastKw = zobrist `unsafeAt` zobCastBegin
+zobCastQw = zobrist `unsafeAt` (zobCastBegin + 1)
+zobCastKb = zobrist `unsafeAt` (zobCastBegin + 2)
+zobCastQb = zobrist `unsafeAt` (zobCastBegin + 3)
 
 zobEP :: Int -> ZKey
-zobEP x = assert (x >= 1 && x <= 8) $ zobrist!(zobCastBegin + 3 + x)
+zobEP x = assert (x >= 1 && x <= 8) $ zobrist `unsafeAt` (zobCastBegin + 3 + x)
