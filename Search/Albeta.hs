@@ -1432,7 +1432,6 @@ viztreeABD a b d = when viztree $ lift $ logmes $ "***ABD " ++ show a ++ " " ++ 
 viztreeReSe :: Node m => Search m ()
 viztreeReSe = when viztree $ lift $ logmes "***RESE"
 
-{--
 viztreeScore :: Node m => String -> Search m ()
 viztreeScore s = when viztree $ lift $ logmes $ "***SCO " ++ s
 
@@ -1443,7 +1442,6 @@ bestFirst path kl (es1, es2)
     where delall = foldr delete
           (e:_)  = path
 {-# SPECIALIZE bestFirst :: [Move] -> [Move] -> ([Move], [Move]) -> [Move] #-}
---}
 
 pushKiller :: Move -> Int -> Killer -> Killer
 pushKiller !e s NoKiller = OneKiller e s

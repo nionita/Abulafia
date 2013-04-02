@@ -69,7 +69,8 @@ Executable Abulafia
 
 Executable FixPlayFen
   Main-is:	Main/MainFixPlayFen.hs
-  Build-depends: base >= 4, array, mtl, parsec, transformers, vector-algorithms, primitive
+  Build-depends: base >= 4, array, mtl, parsec, transformers, vector-algorithms, primitive,
+                 QuickCheck
   GHC-Options: -O2 -Wall
                -funbox-strict-fields -threaded -rtsopts
                -fspec-constr-count=24
