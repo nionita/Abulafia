@@ -928,13 +928,15 @@ pvInnerLoopExten b d spec !exd nst = do
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
               ++ " forpv " ++ show (forpv nst)
     (hdeep, tp, hscore, e', nodes')
-        <- if (useTTinPv || not inPv) && d >= minToRetr
+        <- if (useTTinPv || not inPv) && d' >= minToRetr
               then {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
               else return (-1, 0, 0, undefined, 0)
     let asco = pathScore a
-    if hdeep >= d' && (tp == 2 || tp == 1 && hscore > asco || tp == 0 && hscore <= asco)
+    -- if hdeep >= d' && (tp == 2 || tp == 1 && hscore > asco || tp == 0 && hscore <= asco)
+    if hdeep >= d' && tp == 2
        then {-# SCC "hashRetrieveScoreOk" #-} do
-           let ttpath = Path { pathScore = hscore, pathDepth = hdeep,
+           ---HHH---
+           let ttpath = Path { pathScore = -hscore, pathDepth = hdeep,
                                pathMoves = Seq [e'], pathOrig = "TT" }
            reSucc nodes' >> return ttpath
        else do
@@ -1010,13 +1012,15 @@ pvInnerLoopExtenZ b d spec !exd nst = do
               ++ " mvn " ++ show (movno nst) ++ " next depth " ++ show d'
               ++ " forpv " ++ show False
     (hdeep, tp, hscore, e', nodes')
-        <- if d >= minToRetr
+        <- if d' >= minToRetr
               then {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
               else return (-1, 0, 0, undefined, 0)
     let bsco = pathScore b
-    if hdeep >= d' && (tp == 2 || tp == 1 && hscore >= bsco || tp == 0 && hscore < bsco)
+    -- if hdeep >= d' && (tp == 2 || tp == 1 && hscore >= bsco || tp == 0 && hscore < bsco)
+    if hdeep >= d' && tp == 2
        then {-# SCC "hashRetrieveScoreOk" #-} do
-           let ttpath = Path { pathScore = hscore, pathDepth = hdeep,
+           ---HHH---
+           let ttpath = Path { pathScore = -hscore, pathDepth = hdeep,
                                pathMoves = Seq [e'], pathOrig = "TT" }
            reSucc nodes' >> return ttpath	-- !!!
        else do
@@ -1051,7 +1055,7 @@ checkFailOrPVLoop xstats b d e s nst = do
              nodes1 = sNodes $ stats sst
              nodes' = nodes1 - nodes0
              !de = pathDepth s
-             storeit t = lift $ {-# SCC "hashStore" #-} store de t de e nodes'
+             storeit t = lift $ {-# SCC "hashStore" #-} store de t (pathScore s) e nodes'
          if s >= b
             then do
               let typ = 1	-- best move is e and is beta cut (score is lower limit)
@@ -1093,7 +1097,7 @@ checkFailOrPVLoopZ xstats b d e s nst = do
              nodes' = nodes1 - nodes0
              !de = pathDepth s
          let typ = 1	-- best move is e and is beta cut (score is lower limit)
-         when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ de e nodes'
+         when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
          lift $ betaMove True d (absdp sst) e -- anounce a beta move (for example, update history)
          -- when debug $ logmes $ "<-- pvInner: beta cut: " ++ show s ++ ", return " ++ show b
          !csc <- checkPath nst d "cpl 10" $ if s > b then combinePath s b else bestPath s b
