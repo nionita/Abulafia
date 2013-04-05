@@ -494,6 +494,7 @@ pvInnerRootExten b d spec !exd nst = {-# SCC "pvInnerRootExten" #-} do
     if pvs	-- search of principal variation
        then {-# SCC "forpvSearchRoot" #-} do
            viztreeABD (pathScore negb) (pathScore nega) d'
+           -- Why we don't do IID if we have no best continuation?
            pvSearch nst negb nega d' pvpath' nulMoves >>= return . pnextlev
                                                       >>= checkPath nst d' "cpl 11"
        else {-# SCC "nullWindowRoot" #-} do
@@ -559,7 +560,7 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
              pvb    = Pvsl s nodes' False	-- the bad
              -- xpvslg = insertToPvs d pvg (pvsl nst)	-- the good
              -- xpvslb = insertToPvs d pvb (pvsl nst)	-- the bad
-             de = pathDepth s
+             de = max d $ pathDepth s
          if d == 1	-- for draft 1 we search all root moves exact
             then {-# SCC "allExactRoot" #-} do
                  let typ = 2
@@ -587,7 +588,7 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
                       then {-# SCC "scoreBetaCutRoot" #-} do
                         -- what when a root move fails high? We are in aspiration
                         let typ = 1	-- best move is e and is beta cut (score is lower limit)
-                        when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
+                        when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore b) e nodes'
                         lift $ betaMove True d (absdp sst) e
                         xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
                         !csc <- checkPath nst d "cpl 3" $ if s > b then combinePath s b else bestPath s b
@@ -599,8 +600,8 @@ checkFailOrPVRoot xstats b d e s nst = {-# SCC "checkFailOrPVRoot" #-} do
                       else {-# SCC "scoreBetterAtRoot" #-} do	-- means: > a && < b
                         let sc = pathScore s
                             pa = unseq $ pathMoves s
-                            le = pathDepth s
-                        informBest (scoreToExtern sc le) (draft $ ronly sst) pa
+                            -- le = pathDepth s
+                        informBest (scoreToExtern sc de) (draft $ ronly sst) pa
                         let typ = 2	-- best move so far (score is exact)
                         when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ sc e nodes'
                         xpvslg <- insertToPvs d pvg (pvsl nst)	-- the good
@@ -646,8 +647,8 @@ pvSearch _ !a !b !d _ _ | d <= 0 = do
                   then do
                     (hdeep, tp, hscore, _, nodes')
                         <- {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
-                    if hdeep >= 0 && (tp == 2 || tp == 1 && hscore >  pathScore a
-                                              || tp == 0 && hscore <= pathScore a)
+                    let sca = pathScore a
+                    if hdeep >= 0 && (tp == 2 || tp == 1 && hscore >  sca || tp == 0 && hscore <= sca)
                        then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes' >> return (hscore, 0)
                        else mustQSearch (pathScore a) (pathScore b)
                   else mustQSearch (pathScore a) (pathScore b)
@@ -698,15 +699,16 @@ pvSearch nst !a !b !d lastpath lastnull = do
                  then checkPath nst d "cpl 6b" s
                  else do
                      -- here we failed low
-                     let de = pathDepth s
+                     let de = max d $ pathDepth s
                          es = unalt edges
-                     when (de >= minToStore && not (null es)) $ do
+                     -- when (de >= minToStore && not (null es)) $ do	-- cannot be null here!
+                     when (de >= minToStore) $ do
                          nodes1 <- gets (sNodes . stats)
                          let typ = 0
                              !deltan = nodes1 - nodes0
-                         -- store as upper score, move is also correct, as we check not (null es)
+                         -- store as upper score, and as move, the first one (generated)
                          lift $ {-# SCC "hashStore" #-}
-                                store de typ (pathScore s) (head es) deltan
+                                store de typ (pathScore a) (head es) deltan	-- should be d or de?
                      if movno nstf > 1
                          then checkPath nst d "cpl 6a" $! bestPath s a
                          else do
@@ -722,8 +724,8 @@ pvZeroW _ !b !d _ _ | d <= 0 = do
                   then do
                     (hdeep, tp, hscore, _, nodes')
                         <- {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
-                    if hdeep >= 0 && (tp == 2 || tp == 1 && hscore >= pathScore b
-                                              || tp == 0 && hscore <  pathScore b)
+                    let scb = pathScore b
+                    if hdeep >= 0 && (tp == 2 || tp == 1 && hscore >= scb || tp == 0 && hscore < scb)
                        then {-# SCC "hashRetrieveScoreOk" #-} reSucc nodes' >> return (hscore, 0)
                        else mustQSearch (pathScore bGrain) (pathScore b)
                   else mustQSearch (pathScore bGrain) (pathScore b)
@@ -766,20 +768,17 @@ pvZeroW nst b !d lastpath lastnull = do
                                  cursc = bGrain, pvcont = pvpath }
               nstf <- pvZLoop b d prune nsti edges
               let s = cursc nstf
-              -- Here we expect bGrain <= s <= b -- this must be checked
+              -- Here we expect bGrain <= s < b -- this must be checked
               pindent $ "<: " ++ show s
-              let de = pathDepth s
+              let de = max d $ pathDepth s
                   es = unalt edges
               when (de >= minToStore && s < b) $ do
                   nodes1 <- gets (sNodes . stats)
                   let typ = 0
                       !deltan = nodes1 - nodes0
-                  -- store as upper score - move does not matter - tricky here!
-                  -- as this is a dummy move stored
-                  -- Can we store here even if no move available? What does it bring?
+                  -- store as upper score, and as move the first one (generated)
                   lift $ {-# SCC "hashStore" #-}
-                         -- store de typ (pathScore s) (head es) deltan
-                         store de typ (pathScore s) (Move 0) deltan
+                         store de typ (pathScore b) (head es) deltan
               if s > bGrain || movno nstf > 1
                  then return s
                  else do
@@ -931,13 +930,15 @@ pvInnerLoopExten b d spec !exd nst = do
         <- if (useTTinPv || not inPv) && d' >= minToRetr
               then {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
               else return (-1, 0, 0, undefined, 0)
+    -- TT score is for the opponent (we just made our move),
+    -- so we have to invert the score and the inequality (tp: 2->2, 1->0, 0->1)
     let asco = pathScore a
-    -- if hdeep >= d' && (tp == 2 || tp == 1 && hscore > asco || tp == 0 && hscore <= asco)
-    if hdeep >= d' && tp == 2
+        !hsco = - hscore		
+        !tp'  = if tp == 2 then 2 else 1-tp
+    -- This logic could be done depending on node type?
+    if hdeep >= d' && (tp' == 2 || tp' == 1 && hsco > asco || tp' == 0 && hsco <= asco)
        then {-# SCC "hashRetrieveScoreOk" #-} do
-           ---HHH---
-           let ttpath = Path { pathScore = -hscore, pathDepth = hdeep,
-                               pathMoves = Seq [e'], pathOrig = "TT" }
+           let ttpath = Path { pathScore = hsco, pathDepth = hdeep, pathMoves = Seq [e'], pathOrig = "TT" }
            reSucc nodes' >> return ttpath
        else do
           let pvpath_ = pvcont nst
@@ -947,13 +948,15 @@ pvInnerLoopExten b d spec !exd nst = do
              then do
                 viztreeABD (pathScore negb) (pathScore nega) d'
                 pvpath <- if nullSeq pvpath_ then bestMoveFromHash else return pvpath_
+                -- Why we don't do here IID when no move from hash?
                 pvSearch nst negb nega d' pvpath nulMoves >>= return . pnextlev >>= checkPath nst d' "cpl 14"
              else do
                 -- let pvpath = if null lastpath
                 --           then if hdeep > 0 && tp > 0 then [e'] else []
                 --           else lastpath
                 -- let pvpath' = if hdeep > 0 && tp > 0 then Seq [e'] else pvpath_
-                let pvpath' = if nullSeq pvpath_ && hdeep > 0 && tp > 0 then Seq [e'] else pvpath_
+                -- Use a best move from hash if available
+                let pvpath' = if nullSeq pvpath_ && hdeep > 0 && tp' > 0 then Seq [e'] else pvpath_
                     aGrain = nega -: scoreGrain
                 --1-- let !pvpath = if hdeep > 0 && tp > 0 then Seq [] else (pvcont nst)
                 pvpath <- if useIID && nullSeq pvpath'
@@ -1015,26 +1018,27 @@ pvInnerLoopExtenZ b d spec !exd nst = do
         <- if d' >= minToRetr
               then {-# SCC "hashRetrieveScore" #-} reTrieve >> lift retrieve
               else return (-1, 0, 0, undefined, 0)
+    -- Score and inequality must be inverted
     let bsco = pathScore b
-    -- if hdeep >= d' && (tp == 2 || tp == 1 && hscore >= bsco || tp == 0 && hscore < bsco)
-    if hdeep >= d' && tp == 2
+        !hsco = - hscore
+        !tp' = if tp == 2 then 2 else 1-tp
+    if hdeep >= d' && (tp' == 2 || tp' == 1 && hsco >= bsco || tp' == 0 && hsco < bsco)
        then {-# SCC "hashRetrieveScoreOk" #-} do
-           ---HHH---
-           let ttpath = Path { pathScore = -hscore, pathDepth = hdeep,
-                               pathMoves = Seq [e'], pathOrig = "TT" }
+           let ttpath = Path { pathScore = hsco, pathDepth = hdeep, pathMoves = Seq [e'], pathOrig = "TT" }
            reSucc nodes' >> return ttpath	-- !!!
        else do
-          -- Very probable we don't have pvpath, so don't bother
-          -- let pvpath_ = pvcont nst
-          -- let pvpath' = if nullSeq pvpath_ && hdeep > 0 && tp > 0 then Seq [e'] else pvpath_
+          -- Very probable we don't have pvpath, so don't bother - why not?
+          let pvpath_ = pvcont nst
+          let pvpath' = if nullSeq pvpath_ && hdeep > 0 && tp' > 0 then Seq [e'] else pvpath_
           --1-- let !pvpath = if hdeep > 0 && tp > 0 then Seq [] else (pvcont nst)
+          -- But for sure no IID!
           -- pvpath <- if useIID && nullSeq pvpath'
           --              -- then bestMoveFromIID nst (-a-pathGrain) (-a) d' nulMoves
           --              then bestMoveFromIID nst (-b) (-a) d' nulMoves
           --              else return pvpath'
           -- Here we expect to fail low
           viztreeABD (pathScore negb) (pathScore onemB) d'
-          pvZeroW nst onemB d' emptySeq nulMoves
+          pvZeroW nst onemB d' pvpath' nulMoves
               >>= return . pnextlev >>= checkPath nst d' "cpl 9"
     where onemB = negatePath $ b -: scoreGrain
           negb = negatePath b
@@ -1054,12 +1058,12 @@ checkFailOrPVLoop xstats b d e s nst = do
          let nodes0 = sNodes xstats
              nodes1 = sNodes $ stats sst
              nodes' = nodes1 - nodes0
-             !de = pathDepth s
-             storeit t = lift $ {-# SCC "hashStore" #-} store de t (pathScore s) e nodes'
+             !de = max d $ pathDepth s
          if s >= b
             then do
               let typ = 1	-- best move is e and is beta cut (score is lower limit)
-              when (de >= minToStore) $ storeit typ
+              when (de >= minToStore) $
+                  lift $ {-# SCC "hashStore" #-} store de typ (pathScore b) e nodes'
               lift $ betaMove True d (absdp sst) e -- anounce a beta move (for example, update history)
               -- when debug $ logmes $ "<-- pvInner: beta cut: " ++ show s ++ ", return " ++ show b
               !csc <- checkPath nst d "cpl 10" $ if s > b then combinePath s b else bestPath s b
@@ -1069,7 +1073,8 @@ checkFailOrPVLoop xstats b d e s nst = do
               return (True, nst1)
             else do	-- means: > a && < b
               let typ = 2	-- score is exact
-              when (nxtnt nst == PVNode || de >= minToStore) $ storeit typ
+              when (nxtnt nst == PVNode || de >= minToStore) $	-- why this || with node type?
+                  lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
               -- when debug $ logmes $ "<-- pvInner - new a: " ++ show s
               let !nst1 = nst { cursc = s, nxtnt = nextNodeType (nxtnt nst),
                                forpv = False, movno = mn+1, pvcont = emptySeq }
@@ -1083,7 +1088,7 @@ checkFailOrPVLoopZ xstats b d e s nst = do
     sst <- get
     let mn = movno nst
         -- a  = cursc nst
-    if s <= cursc nst
+    if s <= cursc nst	-- see below by "else"
        then do
             -- when in a cut node and the move dissapointed - negative history - ???
             when (useNegHist && mn <= negHistMNo)
@@ -1091,13 +1096,13 @@ checkFailOrPVLoopZ xstats b d e s nst = do
             !kill1 <- newKiller d s nst
             let !nst1 = nst { movno = mn+1, killer = kill1, pvcont = emptySeq }
             return (False, nst1)
-       else do	-- here is s >= b
+       else do	-- here is s >= b: why cursc nst and now b???
          let nodes0 = sNodes xstats
              nodes1 = sNodes $ stats sst
              nodes' = nodes1 - nodes0
-             !de = pathDepth s
+             !de = max d $ pathDepth s
          let typ = 1	-- best move is e and is beta cut (score is lower limit)
-         when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore s) e nodes'
+         when (de >= minToStore) $ lift $ {-# SCC "hashStore" #-} store de typ (pathScore b) e nodes'
          lift $ betaMove True d (absdp sst) e -- anounce a beta move (for example, update history)
          -- when debug $ logmes $ "<-- pvInner: beta cut: " ++ show s ++ ", return " ++ show b
          !csc <- checkPath nst d "cpl 10" $ if s > b then combinePath s b else bestPath s b
