@@ -171,9 +171,9 @@ retrieveEntry tt zkey = do
 -- but also keep track of the weakest entry in the cell, which will be replaced otherwise
 writeCache :: Cache -> ZKey -> Int -> Int -> Int -> Move -> Int -> IO ()
 writeCache tt zkey depth tp score move nodes = do
-    let (bas, idx) = zKeyToCellIndex tt zkey
+    let (!bas, !idx) = zKeyToCellIndex tt zkey
         gen = gener tt
-        pCE = quintToCacheEn tt zkey depth tp score move nodes
+        !pCE = quintToCacheEn tt zkey depth tp score move nodes
     store gen pCE idx bas bas (4::Int)
     where store gen pCE idx = go
               where go !crt0 !rep0 !tries0 = do

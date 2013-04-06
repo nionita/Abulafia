@@ -65,7 +65,6 @@ initContext cf@(GConfig cfg) = do
 uciMain :: GConfig -> IO ()
 uciMain c = do
     ctx <- initContext c
-    -- cinit	-- this was the c initialiazation routine
     runReaderT startTheMachine ctx
 
 startTheMachine :: CtxIO ()
@@ -88,7 +87,6 @@ startLogger :: String -> CtxIO ()
 startLogger file = do
     ctx <- ask
     lh <- liftIO $ openFile file AppendMode
-    -- liftIO $ forkIO $ theLogger (fromJust $ logger ctx) lh
     _ <- liftIO $ forkIO $ CE.catch (theLogger (fromJust $ logger ctx) lh) exc
     ctxLog "Info" "Logger started"
     return ()
@@ -127,7 +125,6 @@ theInformer ichan = do
     s <- liftIO $ readChan ichan
     chg <- readChanging
     when (working chg) $ toGui s
-    -- ctxLog "Debug" "Informer: go take next info if any..."
     theInformer ichan
 
 toGui :: InfoToGui -> CtxIO ()
@@ -200,10 +197,8 @@ doPosition fen mvs = do
             hi <- liftIO newHist
             let es = evalst $ crtStatus chg
             ns <- newState fen mvs (hash . crtStatus $ chg) hi es
-            -- ns <- newState fen mvs
             modifyChanging (\c -> c { crtStatus = ns, myColor = myCol })
     where newState fpos ms c h es = foldM execMove (stateFromFen fpos c h es) ms
-          -- execMove p m = execStateT (doMove True m False) p
           execMove p m = execSearch (doMove True m False) p
           fenColor = movingColor fen
           myCol = if even (length mvs) then fenColor else other fenColor
@@ -257,6 +252,8 @@ remTimeFracIni = 0.01	-- fraction of remaining time which we can consume at once
 remTimeFracFin = 0.5	-- same at final (when remaining time is near zero)
 remTimeFracDev = remTimeFracFin - remTimeFracIni
 
+-- This computes the normal and maximum computation time
+-- based on total time, time per move, and score
 compTime :: Int -> Int -> Int -> Int -> (Int, Int)
 compTime tim tpm fixmtg lastsc
     = if tpm == 0 && tim == 0 then (0, 0) else (ctm, tmx)
@@ -362,19 +359,10 @@ searchTheTree tief mtief timx tim tpm mtg lsc lpv rmvs = do
         mes = "Depth " ++ show tief ++ " Score " ++ show sc ++ " in ms "
                 ++ show currms ++ " remaining " ++ show delta
                 ++ " path " ++ show path
-    -- answer $ infos $ "currms = " ++ show currms
-    -- answer $ infos $ "ms     = " ++ show ms
-    -- answer $ infos $ "mx     = " ++ show mx
-    -- answer $ infos $ "cr+mx  = " ++ show (currms + mx)
     ctxLog "Info" mes
     ctxLog "Info" $ "compTime: " ++ show ms' ++ " / " ++ show mx
-    -- if ms > 0 && (delta <= 0 || tief >= mtief)  -- time is over or maximal depth
     if depthmax || timeover || onlyone
         then do
-            -- answer $ infos $ "End of search"
-            -- answer $ infos $ "depthmax = " ++ show depthmax
-            -- answer $ infos $ "timeover = " ++ show timeover
-            -- answer $ infos $ "onlyone = " ++ show onlyone
             when depthmax $ ctxLog "Info" "in searchTheTree: max depth reached"
             giveBestMove path
         else do
@@ -392,7 +380,6 @@ storeBestMove mvs sc = do
 
 giveBestMove :: [Move] -> CtxIO ()
 giveBestMove mvs = do
-    -- ctxLog "Info" $ "The moves: " ++ show mvs
     modifyChanging $ \c -> c {
         working = False, compThread = Nothing, forGui = Nothing }
     if null mvs
@@ -415,7 +402,6 @@ doStop extern = do
     modifyChanging (\c -> c { working = False, compThread = Nothing })
     case compThread chg of
         Just tid -> do
-            -- when extern $ liftIO $ threadDelay 500000  -- warte 0.5 Sec.
             when extern $ liftIO $ threadDelay 100000  -- warte 0.1 Sec.
             liftIO $ killThread tid
             case forGui chg of
@@ -426,7 +412,7 @@ doStop extern = do
 doPonderhit :: CtxIO ()
 doPonderhit = notImplemented "doPonderhit"
 
--- Helper: Antwortet dem GUI mit dem gegebenen String
+-- Helper: send a string to the GUI
 answer :: String -> CtxIO ()
 answer s = do
     ctx <- ask
@@ -434,8 +420,8 @@ answer s = do
 
 -- Version and suffix:
 progVersion, progVerSuff, progLogName :: String
-progVersion = "0.62"
-progVerSuff = "trans1"
+progVersion = "0.63"
+progVerSuff = ""
 
 progLogName = "abulafia" ++ "-" ++ progVersion
                  ++ if null progVerSuff then ""
@@ -454,14 +440,12 @@ bestMove m mp = s
     where s = "bestmove " ++ toString m ++ sp
           sp = maybe "" (\v -> " ponder " ++ toString v) mp
 
--- Info Antworten:
--- sel.depth nicht implementiert
+-- Info answers:
+-- sel.depth not implemented
 formInfo :: InfoToGui -> String
 formInfo itg = "info"
-    -- ++ " score cp " ++ show isc
     ++ formScore isc
     ++ " depth " ++ show (infoDepth itg)
-    -- ++ " seldepth " ++ show idp
     ++ " time " ++ show (infoTime itg)
     ++ " nodes " ++ show (infoNodes itg)
     ++ nps'
@@ -473,7 +457,6 @@ formInfo itg = "info"
 
 formInfoB :: InfoToGui -> String
 formInfoB itg = "info"
-    -- ++ " score cp " ++ show isc
     ++ formScore isc
     ++ " pv" ++ concatMap (\m -> ' ' : toString m) (infoPv itg)
     where isc = infoScore itg
@@ -491,7 +474,6 @@ formInfo2 itg = "info"
     ++ " time " ++ show (infoTime itg)
     ++ " nodes " ++ show (infoNodes itg)
     ++ nps'
-    -- ++ " pv" ++ concatMap (\m -> ' ' : toString m) (infoPv itg)
     where nps' = case infoTime itg of
                      0 -> ""
                      x -> " nps " ++ show (infoNodes itg * 1000 `div` x)
@@ -505,7 +487,6 @@ formInfoNps itg
 formInfoDepth :: InfoToGui -> String
 formInfoDepth itg
     = "info depth " ++ show (infoDepth itg)
-      --  ++ " seldepth " ++ show (infoDepth itg)
 
 formInfoCM :: InfoToGui -> String
 formInfoCM itg

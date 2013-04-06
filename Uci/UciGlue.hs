@@ -5,7 +5,7 @@ module Uci.UciGlue (
     bestMoveCont
 ) where
 
-import Data.Array.IArray
+-- import Data.Array.IArray
 import Control.Monad.State.Lazy
 
 import qualified Search.SearchMonad as SM
@@ -15,7 +15,7 @@ import Struct.Struct
 import Struct.Status
 import Struct.Context
 import Moves.Base
-import Eval.Eval
+-- import Eval.Eval
 
 instance CtxMon CtxIO where
     tellCtx = talkToContext
@@ -25,8 +25,8 @@ instance CtxMon CtxIO where
 aspirWindow :: Int
 aspirWindow   = 24	-- initial aspiration window
 
-showEvalStats :: Bool
-showEvalStats = False	-- show eval statistics in logfile
+-- showEvalStats :: Bool
+-- showEvalStats = False	-- show eval statistics in logfile
 
 -- One iteration in the search for the best move
 bestMoveCont :: Int -> Int -> MyState -> Maybe Int -> [Move] -> [Move] -> CtxIO IterResult
