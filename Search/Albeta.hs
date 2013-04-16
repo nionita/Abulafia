@@ -1102,9 +1102,9 @@ genAndSort nst a b d = do
                                       Nothing -> return []
     adp <- gets absdp
     kl  <- lift $ filterM legalEdge $ killerToList (killer nst)
-    let (ttm, prf) = if nullSeq path
+    let (ttm, prf) = if null path
                         then (Nothing, [])
-                        else case head $ unseq path of
+                        else case head path of
                                   e -> (Just e, [e])
     esp <- lift $ genEdges d adp (crtnt nst /= AllNode) ttm kl
     let !es = prf ++ esp

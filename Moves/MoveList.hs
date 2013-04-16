@@ -85,14 +85,15 @@ genCapts pos col vec = do
 
 -- This replaces the current move generation function
 genAMoves :: MyPos -> Color -> Maybe Move -> [Move] -> [Move]
-genAMoves pos col ttmove kills = concat $ snd $ applyPhases ml phases
+genAMoves pos col ttmove kills = applyPhases ml phases
     where ml = newMoveList pos col ttmove kills
           phases = [ phaseGoodCapts, phaseKillers, phaseQuiet, phaseBadCapts ]
 
-applyPhases :: MList -> [MList -> ([Move], MList)] -> (MList, [[Move]])
-applyPhases ml phs = foldr runPhase (ml, []) phs
-    where runPhase ph (ml, ls) = (ml', l:ls)
-              where (l, ml') = ph ml
+applyPhases :: MList -> [MList -> ([Move], MList)] -> [Move]
+applyPhases = go
+    where go _  []       = []
+          go ml (ph:phs) = let (l, ml') = ph ml
+                           in l ++ go ml' phs
 
 -- When we have a TT move, we put it directly in the first position
 -- and it will be delivered without further work
