@@ -73,7 +73,7 @@ instance CtxMon m => Node (Game r m) where
 -- Some options and parameters:
 debug, useHash :: Bool
 debug       = False
-useHash     = False
+useHash     = True
 
 depthForMovesSortPv, depthForMovesSort, scoreDiffEqual :: Int
 depthForMovesSortPv = 1	-- use history for sorting moves when pv or cut nodes
@@ -402,8 +402,12 @@ currDSP = if not useHash then return empRez else do
     let r = case mhr of
                Just t -> t
                _      -> empRez
-    -- when debug $ lift $ ctxLog "Debug" $ "*** currDSP " ++ show r ++ " zkey " ++ show (zobkey p)
-    -- when (sc `mod` 4 /= 0) $ liftIO $ putStrLn $ "info string In currDSP: " ++ show r
+    --     (_, _, sc, _, _) = r
+    -- if (sc `mod` 4 /= 0)
+    --     then do
+    --         logMes $ "*** currDSP " ++ show r ++ " zkey " ++ show (zobkey p)
+    --         return empRez
+    --     else return r
     return r
     where empRez = (-1, 0, 0, Move 0, 0)
 

@@ -98,7 +98,7 @@ currentSecs = do
     TOD s _ <- getClockTime
     return s
 
-secondZero = 1353700000	-- the reference second - has to be increased by 1 mio every about 3 years
+secondZero = 1365100000	-- the reference second - has to be increased by 1 mio every about 3 years
 
 -- Current time in ms (since program start)
 currMilli :: IO Int

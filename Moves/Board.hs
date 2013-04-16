@@ -171,7 +171,9 @@ genmvT _ (f, t) = makeTransf Queen f t
 -- In the next ply, when we try to find a move, we see that all moves are illegal
 -- In this case we should take care in search that the score is 0!
 hasMoves :: MyPos -> Color -> Bool
-hasMoves p c = (chk && (not . null $ genMoveFCheck p c)) || (not chk && anyMove)
+hasMoves !p c
+    | chk       = not . null $ genMoveFCheck p c
+    | otherwise = anyMove
     where hasPc = any (/= 0) $ map (pcapt . pAttacs c)
                      $ bbToSquares $ pawns p .&. myfpc
           hasPm = not . null $ pAll1Moves c (pawns p .&. mypc) (occup p)
@@ -182,12 +184,13 @@ hasMoves p c = (chk && (not . null $ genMoveFCheck p c)) || (not chk && anyMove)
                      $ bbToSquares $ rooks p .&. myfpc
           hasQ = any (/= 0) $ map (legmv . qAttacs (occup p))
                      $ bbToSquares $ queens p .&. myfpc
-          hasK = 0 /= (legal . kAttacs $ firstOne $ kings p .&. mypc)
-          anyMove = hasK || hasN || hasPm || hasPc || hasQ || hasR || hasB
+          !hasK = 0 /= (legal . kAttacs $ firstOne $ kings p .&. mypc)
+          !anyMove = hasK || hasN || hasPm || hasPc || hasQ || hasR || hasB
           chk = inCheck p
-          (mypc, yopi) = thePieces p c
-          myfpc = mypc `less` pinned p
-          yopiep = yopi .|. (epcas p .&. epMask)
+          (!mypc, !yopi) = thePieces p c
+          -- myfpc = mypc `less` pinned p
+          myfpc = mypc
+          !yopiep = yopi .|. (epcas p .&. epMask)
           legmv x = x `less` mypc
           pcapt x = x .&. yopiep
           legal x = x `less` oppAt
@@ -210,10 +213,11 @@ genMoveCapt p c = allp
           !kGenC =            srcDests (capt . legal . kAttacs)
                      $ firstOne $ kings p .&. myfpc
           allp = concat [ pGenC, nGenC, bGenC, rGenC, qGenC, kGenC ]
-          (mypc, yopi) = thePieces p c
-          myfpc = mypc `less` pinned p
+          (!mypc, !yopi) = thePieces p c
+          -- myfpc = mypc `less` pinned p
+          myfpc = mypc
           -- yopi  = yoPieces p c
-          yopiep = yopi .|. (epcas p .&. epMask)
+          !yopiep = yopi .|. (epcas p .&. epMask)
           capt x = x .&. yopi
           pcapt x = x .&. yopiep
           legal x = x `less` oppAt
@@ -255,7 +259,7 @@ genMoveWCapt !p !c = concat [ pGenC, nGenC, bGenC, rGenC, qGenC, kGenC ]
 genMoveNCapt :: MyPos -> Color -> [(Square, Square)]
 -- genMoveNCapt p c = concat [ pGenNC2, qGenNC, rGenNC, bGenNC, nGenNC, pGenNC1, kGenNC ]
 -- genMoveNCapt p c = concat [ pGenNC1, nGenNC, bGenNC, rGenNC, qGenNC, pGenNC2, kGenNC ]
-genMoveNCapt p c = concat [ nGenNC, bGenNC, rGenNC, qGenNC, pGenNC1, pGenNC2, kGenNC ]
+genMoveNCapt !p c = concat [ nGenNC, bGenNC, rGenNC, qGenNC, pGenNC1, pGenNC2, kGenNC ]
     -- where pGenNCT = concatMap (srcDests True (ncapt . \s -> pMovs s c ocp)) 
     --                  $ bbToSquares $ pawns p .&. mypc .&. traR
     --       pGenNC = concatMap (srcDests False (ncapt . \s -> pMovs s c ocp)) 
@@ -272,7 +276,8 @@ genMoveNCapt p c = concat [ nGenNC, bGenNC, rGenNC, qGenNC, pGenNC1, pGenNC2, kG
                       $ bbToSquares $ queens p .&. mypc
           kGenNC =            srcDests (ncapt . legal . kAttacs)
                       $ firstOne $ kings p .&. mypc
-          mypc = myPieces p c `less` pinned p
+          -- mypc = myPieces p c `less` pinned p
+          mypc = myPieces p c
           ncapt x = x `less` occup p
           legal x = x `less` oppAt
           oppAt = if c == White then blAttacs p else whAttacs p
@@ -281,17 +286,18 @@ genMoveNCapt p c = concat [ nGenNC, bGenNC, rGenNC, qGenNC, pGenNC1, pGenNC2, kG
 
 -- Generate only transformations (now only to queen) - captures and non captures
 genMoveTransf :: MyPos -> Color -> [(Square, Square)]
-genMoveTransf p c = pGenC ++ pGenNC
+genMoveTransf !p c = pGenC ++ pGenNC
     where pGenC = concatMap (srcDests (pcapt . pAttacs c))
                      $ bbToSquares $ pawns p .&. myfpc
     --       pGenNC = concatMap (srcDests False (ncapt . \s -> pMovs s c ocp)) 
     --                  $ bbToSquares $ pawns p .&. myfpc .&. traR
           pGenNC = pAll1Moves c (pawns p .&. myfpc) (occup p)
-          (mypc, yopi) = thePieces p c
-          myfpc = mypc .&. traR `less` pinned p
-          yopiep = yopi .|. (epcas p .&. epMask)
+          (!mypc, !yopi) = thePieces p c
+          -- myfpc = mypc .&. traR `less` pinned p
+          !myfpc = mypc .&. traR
+          !yopiep = yopi .|. (epcas p .&. epMask)
           pcapt x = x .&. yopiep
-          traR = if c == White then 0x00FF000000000000 else 0xFF00
+          !traR = if c == White then 0x00FF000000000000 else 0xFF00
 
 -- Generate the captures with pinned pieces
 genMovePCapt :: MyPos -> Color -> [(Square, Square)]
@@ -372,11 +378,11 @@ findChecking !p !c = concat [ pChk, nChk, bChk, rChk, qbChk, qrChk ]
 
 -- Generate move when in check
 genMoveFCheck :: MyPos -> Color -> [(Square, Square)]
-genMoveFCheck p c
+genMoveFCheck !p c
     | null chklist = error "genMoveFCheck"
     | null $ tail chklist = r1 ++ kGen ++ r2	-- simple check
     | otherwise = kGen				-- double check, only king moves help
-    where chklist = findChecking p $ other c
+    where !chklist = findChecking p $ other c
           !kGen = srcDests (legal . kAttacs) ksq
           !ksq = firstOne kbb
           !kbb = kings p .&. mypc
@@ -475,7 +481,9 @@ genMoveNCaptIndirCheck _ _ = []
 sortByMVVLVA :: MyPos -> [(Square, Square)] -> [(Square, Square)]
 sortByMVVLVA p = map snd . sortBy (comparing fst) . map va
     where va ft@(f, t) | Busy _ f1 <- tabla p f, Busy _ f2 <- tabla p t
-                       = ((- matPiece White f2, matPiece White f1), ft)
+                       = let !vic = - matPiece White f2
+                             !agr =   matPiece White f1
+                         in ((vic, agr), ft)
           va _ = error "sortByMVVLVA: not a capture"
 
 -- {-# INLINE updatePos #-}

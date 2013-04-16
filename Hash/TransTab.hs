@@ -8,7 +8,6 @@ module Hash.TransTab (
 import Data.Bits
 import Data.Maybe (fromMaybe)
 import Data.Int
--- import Data.Ix
 import Data.Word
 import Foreign.Marshal.Array
 import Foreign.Storable
@@ -46,7 +45,7 @@ data Cache
 data PCacheEn = PCacheEn { lo, hi :: {-# UNPACK #-} !Word64 }	-- a packed TT entry
 
 pCacheEnSize :: Int
-pCacheEnSize = 2 * sizeOf (undefined :: Word64)
+pCacheEnSize  = 2 * sizeOf (undefined :: Word64)	-- i.e. 16 bytes
 
 instance Storable PCacheEn where
     sizeOf _    = pCacheEnSize
@@ -64,33 +63,28 @@ instance Storable PCacheEn where
 
 {--
 A packed cache entry consists of 2 Word64 parts (the order of the bit fields is fixed):
-- word 1 contains (ttbitlen is the number of bits to represent the table length, i.e.
-  for 2^20 entries, ttbitlen = 20):
-	- part 1 of the ZKey: - the first 64 - ttbitlen - 2 higher bits of the ZKey
+- word 1 (high) contains (ttbitlen is the number of bits to represent the table length in cells,
+  i.e. for 2^18 cells, ttbitlen = 18):
+	- part 1 of the ZKey: - the first (64 - ttbitlen - 2) higher bits of the ZKey
 	- unused bits - variable length depending on number of tt entries (= ttbitlen - 16)
 	- score - 16 bits
 	- part 3 of the ZKey: the last 2 bits
-- word 2 contains:
+- word 2 (low) contains:
 	- nodes - 32 bits
 	- node type - 2 bit: exact = 2, lower = 1, upper = 0
 	- depth -  5 bits
 	- move  - 19 bits
 	- generation - 6 bits
-It results that anyway the number of entries in the table must be at least 2^18 (in which case
-the unused bits part is empty (0 bits).
-Part 2 of the ZKey is the cell number where the entry resides
---}
+It results that anyway the number of entries in the table must be at least 2^18
+(i.e. 2^16 cells with 4 entries each), in which case the "unused bits" part is empty (0 bits).
+Part 2 of the ZKey is the cell number where the entry resides.
 
-{--
-data CacheEn = CacheEn {
-                   partZKey  :: !ZKey,		-- partial ZKey first part, not covered by index
-                   partZCell :: !Word32,	-- partial ZKey third part, corresponding to cell index
-                   posType   :: !Word32,	-- position type: 0 - upper limit, 1 - lower limit, 2 - exact score
-                   posScore  :: !Int,		-- score stored actually on 16 (signed) bits
-                   posDepth  :: !Word32,	-- search depth stored on 5 bits (max depth = 31)
-                   posBest   :: !Word32,	-- best move (19? bits)
-                   posNodes  :: !Word32		-- nodes searched under this position (are 32 unsigned bits enough?)
-               }
+These are fields of the word 1 and the masks that we keep (here for minimum of 2^18 entries):
+|6   5    2         1         0|
+|32109...1098765432109876543210|
+|<--part 1--><----score-----><>|
+|<--himask--><-----lomask----->|    lomask and mimask cover also the unused bits, if any,
+|...      ...<-----mimask--->..|    and the himask is shorter in that case
 --}
 
 part3Mask :: Mask
@@ -111,22 +105,28 @@ newCache c = do
     return Cache { mem = memc, lomask = lom, mimask = mim, himask = complement lom, gener = 0 }
     where cellMask = complement part3Mask	-- for speed we keep both masks
 
--- Increase the generation by 1 for a new search
+-- Increase the generation by 1 for a new search, wrap on 6 bits (i.e. 0 to 63)
 newGener :: Cache -> Cache
-newGener c = c { gener = (gener c + 1) .&. 0x2F }
+newGener c = c { gener = (gener c + 1) .&. 0x3F }
 
--- This computes the base adress of the cell where the given entry should be stored
--- and the (ideal) index of that entry
+-- This computes the adress of the first entry of the cell where an entry given by the key
+-- should be stored, and the (ideal) index of that entry
 -- The (low) mask of the transposition table is also used - this determines the size of the index
 zKeyToCellIndex :: Cache -> ZKey -> (Ptr PCacheEn, Index)
 zKeyToCellIndex tt zkey = (base, idx)
-    where !idx = fromIntegral $ zkey .&. lomask tt
-          !cell = idx `shiftR` 2
-          !base = mem tt `plusPtr` (cell * pCacheEnSize)
+    where idx = fromIntegral $ zkey .&. lomask tt
+          -- This is the wanted calculation:
+          -- cell = idx `unsafeShiftR` 2				-- 2 because we have 4 entries per cell
+          -- base = mem tt `plusPtr` (cell * sizeOf Cell)
+          -- NB: plusPtr advances Bytes!
+          -- And this is how it is done efficiently:
+          -- idx is entry number, we want cell number: 4 entries per cell ==> shiftR 2
+          -- plusPtr needs bytes, 16 bytes/entry * 4 entries/cell = 64 bytes/cell ==> shiftL 6
+          !base = mem tt `plusPtr` ((idx `unsafeShiftR` 2) `unsafeShiftL` 6)
 
 -- Retrieve the ZKey of a packed entry
 getZKey :: Cache -> Index -> PCacheEn -> ZKey
-getZKey tt idx (PCacheEn {lo = w1}) = zkey
+getZKey tt idx (PCacheEn {hi = w1}) = zkey
     where !zkey =  w1 .&. himask tt	-- the first part of the stored ZKey
                .|. widx .&. mimask tt	-- the second part of the stored ZKey
                .|. w1 .&. part3Mask	-- the 3rd part of stored ZKey
@@ -142,23 +142,23 @@ isSameEntry tt zkey idx pCE = zkey == getZKey tt idx pCE
 readCache :: Cache -> ZKey -> IO (Maybe (Int, Int, Int, Move, Int))
 readCache tt zkey = do
     mpce <- retrieveEntry tt zkey
-    return $ fmap cacheEnToQuint mpce
+    return $! fmap cacheEnToQuint mpce
 
 retrieveEntry :: Cache -> ZKey -> IO (Maybe PCacheEn)
 retrieveEntry tt zkey = do
     let (bas, idx) = zKeyToCellIndex tt zkey
     retrieve idx bas (4::Int)
-    where retrieve idx crt tries = go crt tries
-              where go crt0 tries0 = do
-                    pCE <- peek crt0
-                    if isSameEntry tt zkey idx pCE
-                       then return (Just pCE)
-                       else if tries0 <= 1
-                               then return Nothing
-                               else do
-                                   let !crt1 = crt0 `plusPtr` pCacheEnSize
-                                       !tries1 = tries0 - 1
-                                   go crt1 tries1
+    where retrieve idx = go
+              where go !crt0 !tries0 = do
+                       pCE <- peek crt0
+                       if isSameEntry tt zkey idx pCE
+                          then return (Just pCE)
+                          else if tries0 <= 1
+                                  then return Nothing
+                                  else do
+                                      let crt1 = crt0 `plusPtr` pCacheEnSize
+                                          tries1 = tries0 - 1
+                                      go crt1 tries1
 
 -- Write the position in the table
 -- We want to keep table entries that:
@@ -171,22 +171,22 @@ retrieveEntry tt zkey = do
 -- but also keep track of the weakest entry in the cell, which will be replaced otherwise
 writeCache :: Cache -> ZKey -> Int -> Int -> Int -> Move -> Int -> IO ()
 writeCache tt zkey depth tp score move nodes = do
-    let (bas, idx) = zKeyToCellIndex tt zkey
+    let (!bas, !idx) = zKeyToCellIndex tt zkey
         gen = gener tt
-        pCE = quintToCacheEn tt zkey depth tp score move nodes
+        !pCE = quintToCacheEn tt zkey depth tp score move nodes
     store gen pCE idx bas bas (4::Int)
-    where store gen pCE idx crt rep tries = go crt rep tries
-              where go crt0 rep0 tries0 = do
-                        cpCE <- peek crt0
-                        if isSameEntry tt zkey idx cpCE
-                           then poke crt0 pCE	 -- here we found the same entry: just update
-                           else if tries0 <= 1
-                               then poke rep0 pCE -- replace the weakest entry with the current one
-                               else do	-- search further
-                                   rep1 <- chooseReplaceEntry gen crt0 rep0
-                                   let !crt1 = crt0 `plusPtr` pCacheEnSize
-                                       !tries1 = tries0 - 1
-                                   go crt1 rep1 tries1
+    where store gen pCE idx = go
+              where go !crt0 !rep0 !tries0 = do
+                       cpCE <- peek crt0
+                       if isSameEntry tt zkey idx cpCE
+                          then poke crt0 pCE	 -- here we found the same entry: just update
+                          else if tries0 <= 1
+                              then poke rep0 pCE -- replace the weakest entry with the current one
+                              else do	-- search further
+                                  rep1 <- chooseReplaceEntry gen crt0 rep0
+                                  let crt1 = crt0 `plusPtr` pCacheEnSize
+                                      tries1 = tries0 - 1
+                                  go crt1 rep1 tries1
 
 -- Here we implement the logic which decides which entry is weaker
 -- If the current entry has the current generation then we consider the old replacement to be weaker
@@ -201,32 +201,36 @@ chooseReplaceEntry gen crt rep = if rep == crt then return rep else do
            if betterpart repe > betterpart crte
               then return crt
               else return rep
-    where generation = (.&. 0x2F) . lo
+    where generation = (.&. 0x3F) . lo
           betterpart = lo	-- there is some noise at the end of that word (26 bits), but we don't care
 
 quintToCacheEn :: Cache -> ZKey -> Int -> Int -> Int -> Move -> Int -> PCacheEn
 quintToCacheEn tt zkey depth tp score (Move move) nodes = pCE
-    where w1 = zkey .&. himask tt .|. fromIntegral ((score .&. 0xFFFF) `shiftL` 2)
-                .|. zkey .&. part3Mask
-          w2 = fromIntegral nodes `shiftL` 32 .|. gener tt .|. fromIntegral w2low
-          w2low :: Word32
-          w2low =   (fromIntegral tp    `shiftL` 30)
-                .|. (fromIntegral depth `shiftL` 25)
-                .|. (fromIntegral move  `shiftL`  6)
-          !pCE = PCacheEn { lo = w1, hi = w2 }
+    where w1 =   (zkey .&. himask tt)
+             .|. fromIntegral ((score .&. 0xFFFF) `unsafeShiftL` 2)
+             .|. (zkey .&. part3Mask)
+          w2 =   (fromIntegral nodes `unsafeShiftL` 32)
+             .|. (fromIntegral tp    `unsafeShiftL` 30)
+             .|. (fromIntegral depth `unsafeShiftL` 25)
+             .|. (fromIntegral move  `unsafeShiftL`  6)
+             .|. gener tt
+          !pCE = PCacheEn { hi = w1, lo = w2 }
 
 cacheEnToQuint :: PCacheEn -> (Int, Int, Int, Move, Int)
-cacheEnToQuint (PCacheEn { lo = w1, hi = w2 }) = (de, ty, sc, Move mv, no)
-    where ssc = (fromIntegral scp) :: Int16
-          scp = (w1 .&. 0x3FFFF) `shiftR` 2
+cacheEnToQuint (PCacheEn { hi = w1, lo = w2 }) = (de, ty, sc, Move mv, no)
+    where scp = (w1 .&. 0x3FFFF) `unsafeShiftR` 2
+          ssc = (fromIntegral scp) :: Int16
           !sc = fromIntegral ssc
-          !no = fromIntegral $ w2 `shiftR` 32
-          w2low = (fromIntegral w2 .&. 0xFFFFFFFF) :: Word32
-          w21 = w2low `shiftR` 6
+          !no = fromIntegral $ w2 `unsafeShiftR` 32
+          -- w2low = (fromIntegral (w2 .&. 0xFFFFFFFF)) :: Word32
+          w2low = (fromIntegral w2) :: Word32	-- does it work so?
+          w21 = w2low `unsafeShiftR` 6		-- don't need the generation
           !mv = fromIntegral $ w21 .&. 0x7FFFF
-          w22 = w21 `shiftR` 19
+          w22 = w21 `unsafeShiftR` 19
           !de = fromIntegral $ w22 .&. 0x1F
-          !ty = fromIntegral $ w22 `shiftR` 5
+          !ty = fromIntegral $ w22 `unsafeShiftR` 5
+          -- perhaps is not a good idea to make them dependent on each other
+          -- this must be tested and optimised for speed
 
 nextPowOf2 :: Int -> Int
 nextPowOf2 x = bit (l - 1)
