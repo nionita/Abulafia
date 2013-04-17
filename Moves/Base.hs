@@ -125,7 +125,9 @@ genMoves depth absdp pv ttm kills = do
     if isCheck p c
        then return lc
        else do
-           let mvs = genAMoves p c ttm kills
+           s <- get
+           fh <- liftIO $ freezeHist (hist s)
+           let mvs = genAMoves p c fh absdp ttm kills
                l1 = map (genmvT p) $ genMoveTransf p c
            -- checkMoves ttm (l1++mvs) kills
            return $ l1 ++ mvs	-- not really ok: what if ttm is a promotion?
@@ -179,6 +181,8 @@ onlyWinningCapts = True
 genTactMoves :: CtxMon m => Game r m [Move]
 genTactMoves = do
     p <- getPos
+    s <- get
+    fh <- liftIO $ freezeHist (hist s)
     let !c = moving p
         l1 = map (genmvT p) $ genMoveTransf p c
         l2 = map (genmv True p) $ genMoveCapt p c
@@ -190,7 +194,7 @@ genTactMoves = do
         -- the non capturing check moves have to be at the end (tested!)
         -- else if onlyWinningCapts then l1 ++ l2w ++ lnc else l1 ++ l2 ++ lnc
         !mvs | isCheck p c      = lc
-             | onlyWinningCapts = l1 ++ genCMoves p c
+             | onlyWinningCapts = l1 ++ genCMoves p c fh
              | otherwise        = l1 ++ l2
     return mvs
 

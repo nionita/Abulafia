@@ -1,17 +1,20 @@
 {-# LANGUAGE BangPatterns #-}
 module Moves.History (
-        History, newHist, toHist, valHist
+        History, PHistory, freezeHist,
+        newHist, toHist, valHist, valHistPure
     ) where
 
 import Control.Monad (when)
 import Control.Arrow (first)
 
-import qualified Data.Vector.Unboxed.Mutable as V
+import qualified Data.Vector.Unboxed as V
+import qualified Data.Vector.Unboxed.Mutable as VM
 import Data.Bits
 
 import Struct.Struct
 
-type History = V.IOVector Int
+type History = VM.IOVector Int
+type PHistory = V.Vector Int
 
 rows, cols, depths, vsize :: Int
 rows = 64
@@ -23,7 +26,7 @@ adr :: Int -> Int -> Int -> Int
 adr r c d = (r * rows + c) * depths + d
 
 newHist :: IO History
-newHist = V.replicate vsize 0
+newHist = VM.replicate vsize 0
 
 ad00 = 8	-- 8	-- 1
 -- adp2 = 8	-- 16	-- 1
@@ -55,15 +58,24 @@ toHist !h False !f !t !d = do
              (zip (takeWhile (<= d) [2, 4 ..]) neg)
     where dd = depths - d
 
+{-# INLINE valHist #-}
 valHist :: History -> Square -> Square -> Int -> IO Int
-valHist !h !f !t !d = V.unsafeRead h $! adr f t d
+valHist !h !f !t !d = VM.unsafeRead h $! adr f t d
+
+{-# INLINE valHistPure #-}
+valHistPure :: PHistory -> Square -> Square -> Int -> Int
+valHistPure !h !f !t !d = V.unsafeIndex h $! adr f t d
 
 addHist :: History -> Int -> Int -> IO ()
 addHist h ad p = do
-    a <- V.unsafeRead h ad
-    V.unsafeWrite h ad (a - p)	-- trick here: we subtract, so that the sort is big to small
+    a <- VM.unsafeRead h ad
+    VM.unsafeWrite h ad (a - p)	-- trick here: we subtract, so that the sort is big to small
 
 subHist :: History -> Int -> Int -> IO ()
 subHist h ad p = do
-    a <- V.unsafeRead h ad
-    V.unsafeWrite h ad (a + p)	-- trick here: we add, so that the sort is big to small
+    a <- VM.unsafeRead h ad
+    VM.unsafeWrite h ad (a + p)	-- trick here: we add, so that the sort is big to small
+
+{-# INLINE freezeHist #-}
+freezeHist :: History -> IO PHistory
+freezeHist = V.unsafeFreeze
