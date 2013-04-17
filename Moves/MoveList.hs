@@ -17,6 +17,7 @@ import Data.Vector.Generic (unsafeFreeze, unsafeSlice)
 import Data.Vector.Unboxed (toList)
 import Data.Vector.Algorithms.Insertion (sortByBounds)
 import Data.Word
+import Data.Function (on)
 
 -- import Moves.MoveVector
 import Struct.Struct
@@ -145,19 +146,28 @@ copyWithHist vec hist d = go
           go !i (m@(Move w):ms) = do
              let f = fromSquare m
                  t = toSquare m
-                 v = (fromIntegral $ valHistPure hist f t d) .&. 0xFFFF0000
-                 !u = w .|. v
+                 v0 = fromIntegral $ valHistPure hist f t d
+                 !u = foldr (fo v0) w $ take 16 $ zip beven bshil
              U.unsafeWrite vec i u
              go (i+1) ms
+          fo v (b, s) a = a .|. ((v .&. b) `unsafeShiftL` s)
+
+beven = 0x80000000 : map (`unsafeShiftR` 2) beven
+bshil = 0 : map (+2) bshil
 
 sortVec :: Vect s -> Int -> Int -> ST s ()
 sortVec = sortByBounds compare
+
+sortVecI :: Vect s -> Int -> Int -> ST s ()
+sortVecI = sortByBounds (compare `on` f)
+    where f :: Word32 -> Int
+          f = fromIntegral
 
 genQuiet :: MyPos -> Color -> PHistory -> Int -> Vect s -> ST s Int
 genQuiet pos col hist d vec = do
     let fts = genMoveCast pos col ++ map (genmv False pos) (genMoveNCapt pos col)
     n <- copyWithHist vec hist d 0 fts
-    sortVec vec 0 n
+    sortVecI vec 0 n
     return n
 
 pieceVal :: MyPos -> Square -> Int
