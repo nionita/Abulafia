@@ -76,7 +76,7 @@ genCapts pos col vec
                   !agrs = fromIntegral $ (pieceVal pos f) `unsafeShiftR` 8
                   Move m = genmv False pos ft
                   !w = m .|. (vict `unsafeShiftL` 24) .|. (agrs `unsafeShiftL` 16)
-              U.write vec i m
+              U.unsafeWrite vec i m
               return $! i + 1
           fts = genMoveCapt pos col	-- here: transformations are generated separately
 
@@ -109,13 +109,12 @@ phaseGoodCapts ml = runST $ do
     if n == 0
        then return ([], ml)
        else do
+         case mlTTMove ml of
+             Nothing -> return ()
+             Just m  -> zeroMove v n m
          usub <- unsafeToCList n v
-         let (good, bad) = pick usub
+         let (good, bad) = partition (goodSEE ml) usub
          return (good, ml { mlBads = bad })
-    where pick = case mlTTMove ml of { Nothing -> go1; Just m -> go2 }
-          go1 = partition (goodSEE ml)
-          go2 = partition (goodSEE ml) . filter (/= e)
-          e   = fromJust $ mlTTMove ml
 
 phaseKillers :: MList -> ([Move], MList)
 phaseKillers ml = (mlKills ml, ml)
@@ -127,15 +126,23 @@ phaseQuiet :: MList -> ([Move], MList)
 phaseQuiet ml = runST $ do
     v <- U.new maxMovesPerPos
     n <- genQuiet (mlPos ml) (mlColor ml) (mlHist ml) (mlDraft ml) v
+    case mlTTMove ml of
+        Nothing -> return ()
+        Just m  -> zeroMove v n m
+    mapM_ (zeroMove v n) $ mlKills ml
     usub <- unsafeToList n v
-    return (filter exclTTKs usub, ml)
-    where !exclTTKs = case mlTTMove ml of
-                         Nothing -> if null (mlKills ml)
-                                       then const True
-                                       else \e -> if (e `elem` mlKills ml) then False else True
-                         Just m  -> if null (mlKills ml)
-                                       then \e -> e /= m
-                                       else \e -> e /= m && not (e `elem` mlKills ml)
+    return (usub, ml)
+
+zeroMove :: Vect s -> Int -> Move -> ST s ()
+zeroMove vec n (Move w) = go 0
+    where go !i | i >= n = return ()
+          go !i = do
+              x <- U.unsafeRead vec i
+              if x .&. 0xFFFF == w
+                 then do
+                     U.unsafeWrite vec i 0
+                     return ()
+                 else go (i+1)
 
 phaseBadCapts :: MList -> ([Move], MList)
 phaseBadCapts ml = (mlBads ml, ml)	-- TT move checked earlier
@@ -184,11 +191,12 @@ unsafeToList :: Int -> Vect s -> ST s [Move]
 unsafeToList n mv = do
     v <- unsafeFreeze mv
     let sub = unsafeSlice 0 n v
-    return $ map (Move . (.&. 0xFFFF)) $ toList sub	-- take the last 16 bit and make move
+    return $ map (Move . (.&. 0xFFFF)) $ filter (/= 0) $ toList sub
+             -- take the last 16 bit and make move
 
 unsafeToCList :: Int -> Vect s -> ST s [Move]
 unsafeToCList n mv = do
     v <- unsafeFreeze mv
     let sub = unsafeSlice 0 n v
-    return $ map (Move . (.&. 0x2FFFF)) $ toList sub	-- take the last 16 bit and make move
-                                                        -- but with special (now just hard-coded)
+    return $ map (Move . (.&. 0x2FFFF)) $ filter (/= 0) $ toList sub
+        -- take the last 16 bit and make move but with special (now just hard-coded)
