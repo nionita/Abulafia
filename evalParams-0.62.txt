@@ -1,0 +1,21 @@
+-- Candidate test1-41-3.txt Feb  9 10:05:51 for mili
+materialDiff = 8.0
+bishopPair = 320.0
+redundanceRook = -104.0
+nrCorrection = 0.0
+rookPawn = -56.0
+kingSafe = 8.0
+kingOpenOwn = -16.0
+kingOpenAdv = 16.0
+kingCenter = -128.0
+lastLinePenalty = 24.0
+mobilityKnight = 72.0
+mobilityBishop = 64.0
+mobilityRook = 48.0
+mobilityQueen = 3.0
+centerAttacs = 72.0
+passPawnBonus = 24.0
+passPawn4 = 416.0
+passPawn5 = 536.0
+passPawn6 = 1024.0
+passPawn7 = 1928.0
